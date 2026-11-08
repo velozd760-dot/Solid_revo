@@ -1,0 +1,22 @@
+# Emil Kowalski Design Engineering Principles & Craft
+
+When styling, animating, and refining UI components in React and Tailwind:
+
+1. Animation Timings & Physics:
+   - Never use linear transitions for UI elements.
+   - For entrances and interactive feedback, use spring physics or ease-out curves: cubic-bezier(0.16, 1, 0.3, 1).
+   - Duration rule: Small interactions (hovers, clicks) must be fast (120ms - 180ms). Structural changes (modals, panels, tabs) take 240ms - 320ms.
+   - Use transform-gpu to offload animations to the GPU and prevent layout thrashing.
+
+2. Tactile Feedback & Micro-interactions:
+   - Every clickable button or tab MUST have a clear active/pressed state: active:scale-[0.97] or active:scale-[0.98].
+   - Sliders must have smooth thumb hover expansion (transition-transform duration-150 hover:scale-110).
+   - Cards and containers should not just change border color; layer subtle inner glows, soft ambient drop-shadows, and slight Y-axis displacement (hover:-translate-y-0.5).
+
+3. Typography & Information Hierarchy:
+   - Use tabular numbers (tabular-nums) for any value that updates dynamically (coordinates, volumes, error percentages, sliders) to prevent jarring horizontal layout shifts.
+   - Optical alignment: Align icons and text with sub-pixel perfection. Don't rely blindly on center flex if the icon's visual weight is asymmetrical.
+
+4. Surface & Shadows:
+   - Replace harsh single-layer CSS shadows with layered, low-opacity ambient shadows.
+   - Avoid pure solid grays; tint borders and surfaces subtly with the primary color palette (cool slates with blue tints).
