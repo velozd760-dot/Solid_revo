@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1E3A8A" />
+      <stop offset="50%" stop-color="#1D4ED8" />
+      <stop offset="100%" stop-color="#2563EB" />
+    </linearGradient>
+    <linearGradient id="solidBodyGrad" x1="108" y1="168" x2="404" y2="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.42" />
+      <stop offset="50%" stop-color="#93C5FD" stop-opacity="0.28" />
+      <stop offset="100%" stop-color="#60A5FA" stop-opacity="0.45" />
+    </linearGradient>
+    <linearGradient id="topCapGrad" x1="146" y1="134" x2="366" y2="202" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.78" />
+      <stop offset="100%" stop-color="#93C5FD" stop-opacity="0.45" />
+    </linearGradient>
+    <linearGradient id="amberDiskSide" x1="126" y1="252" x2="386" y2="314" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FDE047" />
+      <stop offset="55%" stop-color="#F59E0B" />
+      <stop offset="100%" stop-color="#D97706" />
+    </linearGradient>
+    <linearGradient id="amberDiskTop" x1="126" y1="220" x2="386" y2="300" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FEF08A" />
+      <stop offset="55%" stop-color="#FBBF24" />
+      <stop offset="100%" stop-color="#F59E0B" />
+    </linearGradient>
+  </defs>
+
+  <!-- 1. Contenedor Squircle (rx=112 equivale a 22% de 512px) -->
+  <rect x="0" y="0" width="512" height="512" rx="112" ry="112" fill="url(#bgGrad)" />
+  <rect x="8" y="8" width="496" height="496" rx="106" ry="106" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="6" />
+
+  <!-- 2. Eje vertical de revolución (fondo) -->
+  <line x1="256" y1="52" x2="256" y2="460" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" stroke-dasharray="16 16" stroke-opacity="0.6" />
+
+  <!-- 3. Sombra vectorial base para contraste nítido en 16x16 y 512x512 -->
+  <ellipse cx="256" cy="394" rx="154" ry="50" fill="#0F172A" fill-opacity="0.32" />
+
+  <!-- 4. Base inferior y cuerpo semitransparente del sólido de revolución -->
+  <ellipse cx="256" cy="380" rx="148" ry="46" fill="#1E3A8A" fill-opacity="0.55" stroke="#E0F2FE" stroke-width="6" />
+
+  <path
+    d="M 146 168 C 142 238, 118 312, 108 380 A 148 46 0 0 0 404 380 C 394 312, 370 238, 366 168 A 110 34 0 0 1 146 168 Z"
+    fill="url(#solidBodyGrad)"
+    stroke="#FFFFFF"
+    stroke-width="6"
+    stroke-linejoin="round"
+  />
+
+  <!-- Líneas de malla blancas finas -->
+  <path d="M 196 198 C 190 262, 174 328, 166 416" stroke="#FFFFFF" stroke-width="4" stroke-opacity="0.45" stroke-linecap="round" />
+  <path d="M 316 198 C 322 262, 338 328, 346 416" stroke="#FFFFFF" stroke-width="4" stroke-opacity="0.45" stroke-linecap="round" />
+  <path d="M 134 220 A 122 38 0 0 0 378 220" stroke="#FFFFFF" stroke-width="4" stroke-opacity="0.45" stroke-dasharray="10 10" />
+  <path d="M 116 334 A 140 43 0 0 0 396 334" stroke="#FFFFFF" stroke-width="4" stroke-opacity="0.45" stroke-dasharray="10 10" />
+
+  <!-- 5. Disco / Arandela Diferencial Central en Amarillo/Ámbar (#F59E0B) -->
+  <path
+    d="M 126 258 V 296 A 130 40 0 0 0 386 296 V 258 A 130 40 0 0 1 126 258 Z"
+    fill="url(#amberDiskSide)"
+    stroke="#FEF08A"
+    stroke-width="6"
+    stroke-linejoin="round"
+  />
+  <ellipse cx="256" cy="258" rx="130" ry="40" fill="url(#amberDiskTop)" stroke="#FFFFFF" stroke-width="6" />
+  <ellipse cx="256" cy="258" rx="46" ry="15" fill="#1E3A8A" stroke="#FEF08A" stroke-width="5" />
+
+  <!-- 6. Tapa superior isométrica del sólido -->
+  <ellipse cx="256" cy="168" rx="110" ry="34" fill="url(#topCapGrad)" stroke="#FFFFFF" stroke-width="7" />
+  <ellipse cx="256" cy="168" rx="38" ry="12" fill="#1E3A8A" stroke="#E0F2FE" stroke-width="5" />
+
+  <!-- 7. Curva Matemática Generatriz en Amarillo/Dorado Brillante (#F59E0B) -->
+  <path d="M 366 168 C 370 238, 394 312, 404 380" stroke="#F59E0B" stroke-width="18" stroke-linecap="round" />
+  <path d="M 366 168 C 370 238, 394 312, 404 380" stroke="#FEF08A" stroke-width="7" stroke-linecap="round" />
+  <circle cx="366" cy="168" r="11" fill="#FBBF24" stroke="#FFFFFF" stroke-width="5" />
+  <circle cx="404" cy="380" r="11" fill="#FBBF24" stroke="#FFFFFF" stroke-width="5" />
+
+  <!-- 8. Tramo superior del eje central blanco y flecha circular de giro 360° -->
+  <line x1="256" y1="46" x2="256" y2="174" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round" />
+  <path d="M 190 94 A 72 25 0 1 1 316 102" stroke="#FBBF24" stroke-width="14" stroke-linecap="round" />
+  <path d="M 296 80 L 328 104 L 292 120" stroke="#FBBF24" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

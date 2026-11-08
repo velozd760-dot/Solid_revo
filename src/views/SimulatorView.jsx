@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import ControlsPanel from '../components/ControlsPanel';
 import Canvas2D from '../components/Canvas2D';
 import Canvas3D from '../components/Canvas3D';
@@ -8,7 +8,7 @@ import IntegralLatex from '../components/IntegralLatex';
  * Vista "Simulador": tarjetas blancas con bordes redondeados y sombras limpias
  * que muerden ligeramente el Hero oscuro superior gracias al -mt-8 del contenedor padre.
  */
-export default function SimulatorView({ sim }) {
+const SimulatorView = memo(function SimulatorView({ sim }) {
   return (
     <div className="lg:h-[840px] flex flex-col lg:flex-row gap-5">
       {/* Panel lateral izquierdo: controles (ancho fijo estandarizado 360px a 380px) */}
@@ -70,6 +70,7 @@ export default function SimulatorView({ sim }) {
             showElement={sim.showElement}
             showRiemann={sim.showRiemann}
             riemannMode={sim.riemannMode}
+            riemannSlices={sim.riemannSlices}
             slicesCount={sim.slicesCount}
             onElementMove={sim.moveElement}
           />
@@ -90,6 +91,7 @@ export default function SimulatorView({ sim }) {
               showElement={sim.showElement}
               showRiemann={sim.showRiemann}
               riemannMode={sim.riemannMode}
+              riemannSlices={sim.riemannSlices}
               wireframe={sim.wireframe}
               opacity={sim.opacity}
             />
@@ -109,4 +111,6 @@ export default function SimulatorView({ sim }) {
       </main>
     </div>
   );
-}
+});
+
+export default SimulatorView;

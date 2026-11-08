@@ -297,10 +297,20 @@ const SolidHeroEmblem = memo(function SolidHeroEmblem() {
 export default function App() {
   // Navegación: 'theory' (por defecto) | 'simulator' | 'challenges'
   const [activeTab, setActiveTab] = useState('theory');
-  const handleNavigate = useCallback((tab) => setActiveTab(tab), []);
 
-  // Estado persistente del simulador entre pestañas
-  const sim = useSimulator();
+  // Estado persistente del simulador entre pestañas (suspende cálculos/animación en Teoría y Desafíos)
+  const sim = useSimulator(activeTab === 'simulator');
+  const { setIsPlaying } = sim;
+
+  const handleNavigate = useCallback(
+    (tab) => {
+      if (tab !== 'simulator') {
+        setIsPlaying(false);
+      }
+      setActiveTab(tab);
+    },
+    [setIsPlaying]
+  );
 
   return (
     <div translate="no" className="notranslate min-h-screen w-full flex flex-col overflow-x-hidden text-slate-800 font-sans relative">
@@ -340,11 +350,11 @@ export default function App() {
           {/* Bloque central: Título de gran impacto y Pill Navigation */}
           <div className="flex flex-col items-center justify-center text-center">
             <h1 className="font-display">
-              <span className="block text-3xl md:text-4xl lg:text-5xl font-bold text-amber-400 tracking-wider mb-2">
-                Simulador de
+              <span className="block text-2xl md:text-3xl lg:text-4xl font-extrabold uppercase text-amber-400 tracking-wider mb-2">
+                SIMULADOR DE
               </span>
-              <span className="block text-5xl md:text-6xl lg:text-7xl font-black text-white tracking-tight leading-none drop-shadow-lg">
-                Sólidos de Revolución
+              <span className="block text-4xl sm:text-5xl md:text-5xl lg:text-6xl font-black uppercase text-white tracking-tight leading-none drop-shadow-lg">
+                SÓLIDOS DE REVOLUCIÓN
               </span>
             </h1>
 

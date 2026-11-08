@@ -11,33 +11,41 @@ const COLOR = {
   slate: 'text-slate-800',
 };
 
-const Step = memo(function Step({ n, title, tex, color = 'slate', highlight = false }) {
-  return (
-    <div
-      className={`rounded-xl p-2.5 border transition-colors ${
-        highlight
-          ? 'bg-amber-50/70 border-amber-300 text-amber-900 shadow-sm'
-          : `${GLASS_INNER} hover:border-blue-200`
-      }`}
-    >
+const Step = memo(
+  function Step({ n, title, tex, color = 'slate', highlight = false }) {
+    return (
       <div
-        className={`text-[10px] uppercase tracking-wider mb-0.5 font-semibold flex items-center gap-1.5 ${
-          highlight ? 'text-amber-800' : 'text-slate-500'
+        className={`rounded-xl p-2.5 border transition-colors ${
+          highlight
+            ? 'bg-amber-50/70 border-amber-300 text-amber-900 shadow-sm'
+            : `${GLASS_INNER} hover:border-blue-200`
         }`}
       >
-        <span
-          className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold ${
-            highlight ? 'bg-amber-400 text-slate-900' : 'bg-blue-600 text-white'
+        <div
+          className={`text-[10px] uppercase tracking-wider mb-0.5 font-semibold flex items-center gap-1.5 ${
+            highlight ? 'text-amber-800' : 'text-slate-500'
           }`}
         >
-          {n}
-        </span>
-        {title}
+          <span
+            className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold ${
+              highlight ? 'bg-amber-400 text-slate-900' : 'bg-blue-600 text-white'
+            }`}
+          >
+            {n}
+          </span>
+          {title}
+        </div>
+        <KatexBlock tex={tex} className={`text-sm ${COLOR[color]}`} />
       </div>
-      <KatexBlock tex={tex} className={`text-sm ${COLOR[color]}`} />
-    </div>
-  );
-});
+    );
+  },
+  (prev, next) =>
+    prev.tex === next.tex &&
+    prev.n === next.n &&
+    prev.title === next.title &&
+    prev.color === next.color &&
+    prev.highlight === next.highlight
+);
 
 const IntegralLatex = memo(function IntegralLatex({
   steps,

@@ -101,7 +101,19 @@ function computeIntegralData({ expression, useG, gExpression, aStr, bStr, axis, 
   };
 }
 
-export function useSimulator() {
+const EMPTY_INTEGRAL_DATA = {
+  steps: {
+    method: 'washers',
+    title: 'Planteamiento del volumen',
+    axisLabel: 'y = 0',
+    general: 'V = \\pi \\int_{a}^{b} \\left[ R(x)^{2} - r(x)^{2} \\right] dx',
+    notes: [],
+  },
+  fullVolume: 0,
+  warning: null,
+};
+
+export function useSimulator(isActive = true) {
   // Parámetros matemáticos
   const [expression, setExpression] = useState('sqrt(x)');
   const [useG, setUseG] = useState(false);
@@ -136,9 +148,9 @@ export function useSimulator() {
   const g = useG && gParsed.isValid ? gParsed.fn : zeroFn;
 
   // Cálculo del Volumen Exacto (Simpson 1/3) e integrando lineal memoizado:
-  // SOLO se recalcula cuando cambia la función, los límites o el eje (nunca al arrastrar el slider de Posición x_i).
+  // SOLO se recalcula cuando la pestaña Simulador está activa y cambia la función, los límites o el eje.
   const exactVolumeData = useMemo(() => {
-    if (!fParsed.isValid || (useG && !gParsed.isValid) || !range.ok) {
+    if (!isActive || !fParsed.isValid || (useG && !gParsed.isValid) || !range.ok) {
       return { fullVolume: 0, invalidFraction: 0, isLinearIntegrand: false };
     }
     const { fullVolume, invalidFraction } = computeVolume({
@@ -151,7 +163,7 @@ export function useSimulator() {
     });
     const isLinearIntegrand = isIntegrandLinear({ f, g, a, b, axis, axisOffset });
     return { fullVolume, invalidFraction, isLinearIntegrand };
-  }, [fParsed.isValid, gParsed.isValid, useG, range.ok, f, g, a, b, axis, axisOffset]);
+  }, [isActive, fParsed.isValid, gParsed.isValid, useG, range.ok, f, g, a, b, axis, axisOffset]);
 
   // Objeto de configuración memoizado para el cálculo simbólico/numérico diferido
   const debouncedConfig = useMemo(
@@ -159,12 +171,15 @@ export function useSimulator() {
     [expression, useG, gExpression, aStr, bStr, axis, axisOffset]
   );
   const debounced = useDebouncedValue(debouncedConfig, 350);
-  const integralData = useMemo(() => computeIntegralData(debounced), [debounced]);
+  const integralData = useMemo(
+    () => (isActive ? computeIntegralData(debounced) : EMPTY_INTEGRAL_DATA),
+    [isActive, debounced]
+  );
 
   // Partición de la Suma de Riemann memoizada:
-  // SOLO se recalcula cuando cambian la función, límites, eje, N (slicesCount) o modo de muestreo (nunca al mover x_i).
+  // SOLO se recalcula cuando el Simulador está activo y cambian la función, límites, eje, N o modo.
   const riemannSlices = useMemo(() => {
-    if (!fParsed.isValid || (useG && !gParsed.isValid) || !range.ok) {
+    if (!isActive || !fParsed.isValid || (useG && !gParsed.isValid) || !range.ok) {
       return [];
     }
     return computeRiemannSlices({
@@ -178,6 +193,7 @@ export function useSimulator() {
       mode: riemannMode,
     });
   }, [
+    isActive,
     fParsed.isValid,
     gParsed.isValid,
     useG,
@@ -268,9 +284,9 @@ export function useSimulator() {
     angleDegRef.current = angleDeg;
   }, [angleDeg]);
 
-  // Bucle de animación del barrido angular (se detiene solo al completar 360°)
+  // Bucle de animación del barrido angular (se detiene al completar 360° o al salir del Simulador)
   useEffect(() => {
-    if (!isPlaying) return undefined;
+    if (!isPlaying || !isActive) return undefined;
 
     let raf;
     let last = performance.now();
@@ -288,7 +304,7 @@ export function useSimulator() {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [isPlaying]);
+  }, [isPlaying, isActive]);
 
   const boundsStatus = useMemo(
     () => ({

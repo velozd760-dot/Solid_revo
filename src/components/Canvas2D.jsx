@@ -44,6 +44,7 @@ const Canvas2D = memo(function Canvas2D({
   showElement = true,
   showRiemann = false,
   riemannMode = 'left',
+  riemannSlices: precomputedSlices,
   sampleMode,
   slicesCount = 20,
   onElementMove,
@@ -62,11 +63,12 @@ const Canvas2D = memo(function Canvas2D({
   const safeB = Number.isFinite(b) && b !== safeA ? b : safeA + 1;
   const safeOffset = Number.isFinite(axisOffset) ? axisOffset : 0;
 
-  // Partición de Riemann memoizada: no se recalcula al arrastrar el slider de Posición x_i
+  // Partición de Riemann memoizada: reutiliza precomputedSlices si proviene de useSimulator
   const riemannSlices = useMemo(
     () =>
       showRiemann
-        ? computeRiemannSlices({
+        ? (precomputedSlices ??
+          computeRiemannSlices({
             f,
             g,
             a: safeA,
@@ -75,9 +77,9 @@ const Canvas2D = memo(function Canvas2D({
             axisOffset: safeOffset,
             count: slicesCount,
             mode: resolvedMode,
-          })
+          }))
         : [],
-    [showRiemann, f, g, safeA, safeB, axis, safeOffset, slicesCount, resolvedMode]
+    [showRiemann, precomputedSlices, f, g, safeA, safeB, axis, safeOffset, slicesCount, resolvedMode]
   );
 
   // Muestreo de curvas y cotas del plano memoizado: evita re-evaluar ~1000 puntos al arrastrar x_i
@@ -181,9 +183,13 @@ const Canvas2D = memo(function Canvas2D({
     if (!ctx) return;
     const width = size.w;
     const height = size.h;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    const targetW = Math.round(width * dpr);
+    const targetH = Math.round(height * dpr);
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+    }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     ctx.clearRect(0, 0, width, height);

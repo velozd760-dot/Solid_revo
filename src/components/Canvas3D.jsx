@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import {
@@ -22,19 +22,30 @@ const COLORS = {
 };
 
 const CAMERA_CONFIG = { position: [6, 4.5, 7.5], fov: 45 };
-const GL_CONFIG = { antialias: true, alpha: true, preserveDrawingBuffer: true };
+const DPR_RANGE = [1, 1.5];
+const GL_CONFIG = {
+  antialias: true,
+  alpha: true,
+  preserveDrawingBuffer: true,
+  powerPreference: 'high-performance',
+};
 
 /**
- * Libera la memoria de la geometría y del material de una malla Three.js
- * cuando se regenera la geometría o se desmonta el componente.
+ * Libera la memoria de la geometría en GPU cada vez que se reemplaza,
+ * y ejecuta material.dispose() cuando cambia la función analítica (f, g) o al desmontar.
  */
-function useDisposableMesh(geometry, materialRef) {
+function useDisposableMesh(geometry, materialRef, f, g) {
   useEffect(() => {
-    const material = materialRef?.current;
     return () => {
       if (geometry) {
         geometry.dispose();
       }
+    };
+  }, [geometry]);
+
+  useEffect(() => {
+    const material = materialRef?.current;
+    return () => {
       if (material) {
         if (Array.isArray(material)) {
           material.forEach((m) => m?.dispose?.());
@@ -43,7 +54,7 @@ function useDisposableMesh(geometry, materialRef) {
         }
       }
     };
-  }, [geometry, materialRef]);
+  }, [f, g, materialRef]);
 
   return geometry;
 }
@@ -69,7 +80,9 @@ const RevolutionSolid = memo(function RevolutionSolid({
       () => createSolidGeometry({ f, g, a, b, axis, axisOffset, angle: angleRad }),
       [f, g, a, b, axis, axisOffset, angleRad]
     ),
-    solidMaterialRef
+    solidMaterialRef,
+    f,
+    g
   );
 
   const caps = useDisposableMesh(
@@ -77,7 +90,9 @@ const RevolutionSolid = memo(function RevolutionSolid({
       () => createSweepCaps({ f, g, a, b, axis, axisOffset, angle: angleRad }),
       [f, g, a, b, axis, axisOffset, angleRad]
     ),
-    capsMaterialRef
+    capsMaterialRef,
+    f,
+    g
   );
 
   const alpha = ghost ? Math.min(opacity, 0.16) : opacity;
@@ -129,6 +144,7 @@ const RiemannSlices = memo(function RiemannSlices({
   axisOffset,
   count,
   riemannMode = 'left',
+  precomputedSlices,
   angleRad,
   selectedIndex,
   wireframe,
@@ -136,8 +152,10 @@ const RiemannSlices = memo(function RiemannSlices({
   const sliceMaterialRef = useRef(null);
 
   const slices = useMemo(
-    () => computeRiemannSlices({ f, g, a, b, axis, axisOffset, count, mode: riemannMode }),
-    [f, g, a, b, axis, axisOffset, count, riemannMode]
+    () =>
+      precomputedSlices ??
+      computeRiemannSlices({ f, g, a, b, axis, axisOffset, count, mode: riemannMode }),
+    [precomputedSlices, f, g, a, b, axis, axisOffset, count, riemannMode]
   );
 
   const geometry = useDisposableMesh(
@@ -154,7 +172,9 @@ const RiemannSlices = memo(function RiemannSlices({
         }),
       [slices, f, g, axis, axisOffset, angleRad, selectedIndex]
     ),
-    sliceMaterialRef
+    sliceMaterialRef,
+    f,
+    g
   );
 
   return geometry ? (
@@ -203,7 +223,9 @@ const DifferentialElement = memo(function DifferentialElement({
         }),
       [f, g, xc, xSample, dx, axis, axisOffset, angleRad, radialExpand]
     ),
-    elementMaterialRef
+    elementMaterialRef,
+    f,
+    g
   );
 
   return geometry ? (
@@ -260,10 +282,12 @@ const Scene = memo(function Scene({
   showElement = true,
   showRiemann = false,
   riemannMode = 'left',
+  riemannSlices,
   sampleMode,
   wireframe = false,
   opacity = 0.55,
 }) {
+  const invalidate = useThree((state) => state.invalidate);
   const resolvedMode = sampleMode ?? riemannMode ?? 'left';
   const safeElement = element ?? DEFAULT_ELEMENT_3D;
   const angleRad = (angleDeg * Math.PI) / 180;
@@ -271,6 +295,30 @@ const Scene = memo(function Scene({
     () => computeSolidBounds({ f, g, a, b, axis, axisOffset }),
     [f, g, a, b, axis, axisOffset]
   );
+
+  // Solicita un nuevo frame bajo demanda cuando cambia cualquier propiedad de la escena 3D
+  useEffect(() => {
+    invalidate();
+  }, [
+    invalidate,
+    f,
+    g,
+    a,
+    b,
+    axis,
+    axisOffset,
+    angleRad,
+    slicesCount,
+    safeElement.xc,
+    safeElement.xSample,
+    safeElement.dx,
+    safeElement.index,
+    showElement,
+    showRiemann,
+    resolvedMode,
+    wireframe,
+    opacity,
+  ]);
 
   // Normaliza el tamaño del sólido para que siempre quepa en la vista (memoizado)
   const { scale, position, floorY } = useMemo(() => {
@@ -325,6 +373,7 @@ const Scene = memo(function Scene({
             axisOffset={axisOffset}
             count={slicesCount}
             riemannMode={resolvedMode}
+            precomputedSlices={riemannSlices}
             angleRad={angleRad}
             selectedIndex={safeElement.index}
             wireframe={wireframe}
@@ -406,11 +455,17 @@ const Canvas3D = memo(function Canvas3D(props) {
 
   const handleResetCamera = useCallback(() => {
     controlsRef.current?.reset();
+    r3fRef.current?.invalidate?.();
+  }, []);
+
+  const handleControlsChange = useCallback(() => {
+    r3fRef.current?.invalidate?.();
   }, []);
 
   const handleCreated = useCallback((state) => {
     r3fRef.current = state;
     state.gl.setClearColor(0x000000, 0);
+    state.invalidate();
   }, []);
 
   return (
@@ -461,16 +516,20 @@ const Canvas3D = memo(function Canvas3D(props) {
       </div>
 
       <Canvas
+        frameloop="demand"
+        dpr={DPR_RANGE}
         camera={CAMERA_CONFIG}
         gl={GL_CONFIG}
         onCreated={handleCreated}
       >
         <OrbitControls
           ref={controlsRef}
+          makeDefault
           enableDamping
           dampingFactor={0.06}
           minDistance={1.5}
           maxDistance={40}
+          onChange={handleControlsChange}
         />
         <Scene {...props} />
       </Canvas>
