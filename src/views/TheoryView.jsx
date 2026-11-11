@@ -13,10 +13,10 @@ const item = {
   show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 220, damping: 24 } },
 };
 
-/** Píldora inline para resaltar el diferencial dx en el texto. */
+/** Variable matemática inline destacada únicamente en texto dorado sin cajas ni fondos. */
 function DxBadge({ children = 'dx' }) {
   return (
-    <span className="inline-block px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 font-mono text-xs font-bold leading-none">
+    <span className="text-amber-500 font-bold mx-1">
       {children}
     </span>
   );
@@ -164,7 +164,7 @@ export default function TheoryView({ onNavigate }) {
       >
         <p>
           Cada rebanada tiene un espesor <DxBadge>Δx</DxBadge> y un área{' '}
-          <b className="text-slate-800">A(x)</b>; su volumen aproximado es{' '}
+          <DxBadge>A(x)</DxBadge>; su volumen aproximado es{' '}
           <KatexBlock display={false} tex={'A(x_i)\\,\\Delta x'} className="text-blue-700" />. Al hacer{' '}
           <b className="text-slate-800">n → ∞</b> el error desaparece y la suma converge a una integral.
         </p>

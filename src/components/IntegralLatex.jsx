@@ -49,7 +49,6 @@ const Step = memo(
 
 const IntegralLatex = memo(function IntegralLatex({
   steps,
-  hasG,
   fullVolume,
   currentVolume,
   angleFraction,
@@ -87,16 +86,11 @@ const IntegralLatex = memo(function IntegralLatex({
       className={`${GLASS} notranslate h-full overflow-y-auto p-4 text-slate-800 space-y-3`}
     >
       {/* Title */}
-      <div className="flex items-center justify-between border-b border-slate-200/80 pb-2 gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <Calculator className="w-4 h-4 text-blue-600 shrink-0" />
-          <h2 className="text-xs font-bold tracking-wider uppercase text-slate-700 truncate">
-            {steps.title ?? 'Planteamiento del volumen'}
-          </h2>
-        </div>
-        <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 whitespace-nowrap font-semibold">
-          {hasG ? 'entre 2 curvas' : 'bajo f(x)'} · eje {steps.axisLabel}
-        </span>
+      <div className="flex items-center gap-2 border-b border-slate-200/80 pb-2">
+        <Calculator className="w-4 h-4 text-blue-600 shrink-0" />
+        <h2 className="text-xs font-bold tracking-wider uppercase text-slate-700 leading-snug">
+          {steps.title ?? 'Planteamiento del volumen'}
+        </h2>
       </div>
 
       {warning && (

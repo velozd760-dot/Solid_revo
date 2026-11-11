@@ -26,9 +26,6 @@
     </linearGradient>
   </defs>
 
-  <!-- 1. Contenedor Squircle (rx=112 equivale a 22% de 512px) -->
-  <rect x="0" y="0" width="512" height="512" rx="112" ry="112" fill="url(#bgGrad)" />
-  <rect x="8" y="8" width="496" height="496" rx="106" ry="106" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="6" />
 
   <!-- 2. Eje vertical de revolución (fondo) -->
   <line x1="256" y1="52" x2="256" y2="460" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" stroke-dasharray="16 16" stroke-opacity="0.6" />

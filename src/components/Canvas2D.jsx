@@ -82,43 +82,78 @@ const Canvas2D = memo(function Canvas2D({
     [showRiemann, precomputedSlices, f, g, safeA, safeB, axis, safeOffset, slicesCount, resolvedMode]
   );
 
-  // Muestreo de curvas y cotas del plano memoizado: evita re-evaluar ~1000 puntos al arrastrar x_i
-  const plotData = useMemo(() => {
+  // 1. Muestreo estático de la región en [a, b] (solo cambia si cambian f, g o los límites)
+  const regionSamples = useMemo(() => {
     const fSamples = sampleFunction(f, safeA, safeB, 241);
     const gSamples = hasG
       ? sampleFunction(g, safeA, safeB, 241)
       : fSamples.map((p) => ({ x: p.x, y: 0, isValid: true }));
 
-    const yCandidates = [0];
-    const pushSafeY = (val) => {
+    let baseMinY = 0;
+    let baseMaxY = 0;
+    const includeY = (val) => {
       if (Number.isFinite(val) && Math.abs(val) < 1e6) {
-        yCandidates.push(val);
+        if (val < baseMinY) baseMinY = val;
+        if (val > baseMaxY) baseMaxY = val;
       }
     };
 
-    if (axis === 'x') pushSafeY(safeOffset);
-
     for (const p of fSamples) {
-      if (p.isValid) pushSafeY(p.y);
+      if (p.isValid) includeY(p.y);
     }
     for (const p of gSamples) {
-      if (p.isValid) pushSafeY(p.y);
+      if (p.isValid) includeY(p.y);
     }
     for (const xEnd of [safeA, safeB]) {
-      pushSafeY(evalAt(f, xEnd));
+      includeY(evalAt(f, xEnd));
       if (hasG) {
-        pushSafeY(evalAt(g, xEnd));
-      }
-    }
-    for (const sl of riemannSlices) {
-      if (sl.valid) {
-        pushSafeY(sl.lo);
-        pushSafeY(sl.hi);
+        includeY(evalAt(g, xEnd));
       }
     }
 
-    let minYData = Math.min(...yCandidates);
-    let maxYData = Math.max(...yCandidates);
+    return { fSamples, gSamples, baseMinY, baseMaxY };
+  }, [f, g, hasG, safeA, safeB]);
+
+  // 2. Rango horizontal [minX, maxX]: en eje horizontal (y = k) no depende del desplazamiento k
+  const xAxisRefOffset = axis === 'y' ? safeOffset : 0;
+  const xBounds = useMemo(() => {
+    const xCandidates = [safeA, safeB, 0, ...(axis === 'y' ? [xAxisRefOffset] : [])];
+    const minVal = Math.min(...xCandidates);
+    const maxVal = Math.max(...xCandidates);
+    const dataSpanX = Math.max(1e-3, maxVal - minVal);
+    const padX = dataSpanX * 0.08 + 0.15;
+    const minX = minVal - padX;
+    const maxX = maxVal + padX;
+    const spanX = Math.max(0.5, maxX - minX);
+    return { minX, maxX, spanX };
+  }, [safeA, safeB, axis, xAxisRefOffset]);
+
+  // 3. Muestreo extendido en [minX, maxX]: solo se recalcula si cambia la ventana horizontal
+  const curveSamples = useMemo(() => {
+    const fCurveSamples = sampleFunction(f, xBounds.minX, xBounds.maxX, 260);
+    const gCurveSamples = hasG ? sampleFunction(g, xBounds.minX, xBounds.maxX, 260) : [];
+    return { fCurveSamples, gCurveSamples };
+  }, [f, g, hasG, xBounds.minX, xBounds.maxX]);
+
+  // 4. Cotas verticales ligeras O(1) al desplazar k
+  const yBounds = useMemo(() => {
+    let minYData = regionSamples.baseMinY;
+    let maxYData = regionSamples.baseMaxY;
+    const includeY = (val) => {
+      if (Number.isFinite(val) && Math.abs(val) < 1e6) {
+        if (val < minYData) minYData = val;
+        if (val > maxYData) maxYData = val;
+      }
+    };
+
+    if (axis === 'x') includeY(safeOffset);
+    for (const sl of riemannSlices) {
+      if (sl.valid) {
+        includeY(sl.lo);
+        includeY(sl.hi);
+      }
+    }
+
     if (!Number.isFinite(minYData) || !Number.isFinite(maxYData)) {
       minYData = -1;
       maxYData = 2;
@@ -128,37 +163,13 @@ const Canvas2D = memo(function Canvas2D({
       maxYData += 1;
     }
 
-    const xCandidates = [safeA, safeB, 0, ...(axis === 'y' ? [safeOffset] : [])];
-    const dataSpanX = Math.max(1e-3, Math.max(...xCandidates) - Math.min(...xCandidates));
-    const padX = dataSpanX * 0.08 + 0.15;
-    const minX = Math.min(...xCandidates) - padX;
-    const maxX = Math.max(...xCandidates) + padX;
-    const spanX = Math.max(0.5, maxX - minX);
-
     const dataSpanY = Math.max(1e-3, maxYData - minYData);
     const padY = Math.max(0.15, dataSpanY * 0.15);
     const yMin = minYData - padY;
     const yMax = maxYData + padY;
     const spanY = Math.max(0.5, yMax - yMin);
-
-    const fCurveSamples = sampleFunction(f, minX, maxX, 260);
-    const gCurveSamples = hasG ? sampleFunction(g, minX, maxX, 260) : [];
-
-    return {
-      fSamples,
-      gSamples,
-      minYData,
-      maxYData,
-      minX,
-      maxX,
-      spanX,
-      yMin,
-      yMax,
-      spanY,
-      fCurveSamples,
-      gCurveSamples,
-    };
-  }, [f, g, hasG, safeA, safeB, axis, safeOffset, riemannSlices]);
+    return { minYData, maxYData, yMin, yMax, spanY };
+  }, [regionSamples.baseMinY, regionSamples.baseMaxY, axis, safeOffset, riemannSlices]);
 
   // Redibuja cuando cambia el tamaño del contenedor (sin bucle de re-render si w/h no cambian)
   useEffect(() => {
@@ -194,20 +205,10 @@ const Canvas2D = memo(function Canvas2D({
 
     ctx.clearRect(0, 0, width, height);
 
-    const {
-      fSamples,
-      gSamples,
-      minYData,
-      maxYData,
-      minX,
-      maxX,
-      spanX,
-      yMin,
-      yMax,
-      spanY,
-      fCurveSamples,
-      gCurveSamples,
-    } = plotData;
+    const { fSamples, gSamples } = regionSamples;
+    const { minX, maxX, spanX } = xBounds;
+    const { fCurveSamples, gCurveSamples } = curveSamples;
+    const { minYData, maxYData, yMin, yMax, spanY } = yBounds;
 
     const marginX = 48;
     const marginTop = 40;
@@ -296,7 +297,7 @@ const Canvas2D = memo(function Canvas2D({
 
     // ---- Rectángulos (Riemann o elemento diferencial) ------------------------
     const drawSliceRect = (xc, xSample, dx, selected) => {
-      const s = sectionAt({ f, g, x: xSample, axis, axisOffset });
+      const s = sectionAt({ f, g, x: xSample, axis, axisOffset: safeOffset });
       if (!s.valid) return null;
       const x0 = toSX(xc - dx / 2);
       const x1 = toSX(xc + dx / 2);
@@ -527,12 +528,14 @@ const Canvas2D = memo(function Canvas2D({
     safeB,
     axis,
     safeOffset,
-     axisOffset,
     safeElement,
     showElement,
     showRiemann,
     riemannSlices,
-    plotData,
+    regionSamples,
+    xBounds,
+    curveSamples,
+    yBounds,
     size,
   ]);
 

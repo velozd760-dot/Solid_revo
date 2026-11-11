@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useState } from 'react';
+import React, { memo, startTransition, useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import {
   Play,
   Pause,
@@ -14,6 +14,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { GLASS, GLASS_INNER } from './GlassCard';
+import { DEFAULT_SIMULATOR_STATE } from '../hooks/useSimulator';
 
 const PRESETS = [
   { label: 'Trompeta: √x', f: 'sqrt(x)', a: '0', b: '4', axis: 'x', offset: 0 },
@@ -69,51 +70,201 @@ const Badge = memo(function Badge({ ok }) {
 });
 
 const ControlsPanel = memo(function ControlsPanel({
-  expression = 'sqrt(x)',
+  expression = DEFAULT_SIMULATOR_STATE.expression,
   setExpression,
-  useG = false,
+  useG = DEFAULT_SIMULATOR_STATE.useG,
   setUseG,
-  gExpression = 'x^2',
+  gExpression = DEFAULT_SIMULATOR_STATE.gExpression,
   setGExpression,
-  aStr = '0',
+  aStr = DEFAULT_SIMULATOR_STATE.aStr,
   setAStr,
-  bStr = '4',
+  bStr = DEFAULT_SIMULATOR_STATE.bStr,
   setBStr,
   boundsStatus = { aOk: true, bOk: true, message: '' },
-  axis = 'x',
+  axis = DEFAULT_SIMULATOR_STATE.axis,
   setAxis,
-  axisOffset = 0,
+  axisOffset = DEFAULT_SIMULATOR_STATE.axisOffset,
   setAxisOffset,
-  angleDeg = 360,
+  angleDeg = DEFAULT_SIMULATOR_STATE.angleDeg,
   setAngleDeg,
-  isPlaying = false,
+  isPlaying = DEFAULT_SIMULATOR_STATE.isPlaying,
   setIsPlaying,
-  slicesCount = 20,
+  slicesCount = DEFAULT_SIMULATOR_STATE.slicesCount,
   setSlicesCount,
-  showRiemann = false,
+  showRiemann = DEFAULT_SIMULATOR_STATE.showRiemann,
   setShowRiemann,
-  riemannMode = 'left',
+  riemannMode = DEFAULT_SIMULATOR_STATE.riemannMode,
   setRiemannMode,
   riemannStats = { vApprox: 0, vExact: 0, relErrorPct: 0, isLinearIntegrand: false },
-  showElement = true,
+  showElement = DEFAULT_SIMULATOR_STATE.showElement,
   setShowElement,
-  xi = 2,
+  xi = DEFAULT_SIMULATOR_STATE.xi,
   setXi,
   rangeA = 0,
   rangeB = 4,
-  wireframe = false,
+  wireframe = DEFAULT_SIMULATOR_STATE.wireframe,
   setWireframe,
-  opacity = 0.55,
+  opacity = DEFAULT_SIMULATOR_STATE.opacity,
   setOpacity,
   parserStatus = { isValid: true, error: null },
   gStatus = { isValid: true, error: null },
+  activeTab: activeTabProp,
+  setActiveTab: setActiveTabProp,
+  preset: presetProp,
+  setPreset: setPresetProp,
+  cutAnglePref: cutAnglePrefProp,
+  setCutAnglePref: setCutAnglePrefProp,
+  onAxisDragChange,
+  onResetDefaults,
 }) {
-  const [activeTab, setActiveTab] = useState('parameters');
-  const [preset, setPreset] = useState('');
-  const [cutAnglePref, setCutAnglePref] = useState(180);
+  const [localTab, setLocalTab] = useState(DEFAULT_SIMULATOR_STATE.panelTab);
+  const [localPreset, setLocalPreset] = useState(DEFAULT_SIMULATOR_STATE.preset);
+  const [localCutAnglePref, setLocalCutAnglePref] = useState(DEFAULT_SIMULATOR_STATE.cutAnglePref);
+
+  // Estado local ligero a 60 FPS para botones de eje y slider de desplazamiento k/c
+  const [isAxisPending, startAxisTransition] = useTransition();
+  const [optimisticAxis, setOptimisticAxis] = useState(null);
+  const [dragOffset, setDragOffset] = useState(null);
+
+  const rafRef = useRef(0);
+  const idleTimerRef = useRef(null);
+  const pendingOffsetRef = useRef(axisOffset);
+  const hasPendingOffsetRef = useRef(false);
+  const isDragReportedRef = useRef(false);
+  const pointerCleanupRef = useRef(null);
+
+  const displayedAxis = isAxisPending && optimisticAxis ? optimisticAxis : axis;
+  const displayedOffset = dragOffset ?? axisOffset;
+
+  const activeTab = activeTabProp ?? localTab;
+  const setActiveTab = setActiveTabProp ?? setLocalTab;
+  const preset = presetProp ?? localPreset;
+  const setPreset = setPresetProp ?? setLocalPreset;
+  const cutAnglePref = cutAnglePrefProp ?? localCutAnglePref;
+  const setCutAnglePref = setCutAnglePrefProp ?? setLocalCutAnglePref;
+
+  const reportAxisDrag = useCallback(
+    (active) => {
+      if (isDragReportedRef.current === active) return;
+      isDragReportedRef.current = active;
+      onAxisDragChange?.(active);
+    },
+    [onAxisDragChange]
+  );
+
+  const detachWindowPointerListeners = useCallback(() => {
+    if (pointerCleanupRef.current) {
+      pointerCleanupRef.current();
+      pointerCleanupRef.current = null;
+    }
+  }, []);
+
+  const finalizeOffsetDrag = useCallback(() => {
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+    }
+    if (idleTimerRef.current !== null) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+    detachWindowPointerListeners();
+    if (hasPendingOffsetRef.current) {
+      hasPendingOffsetRef.current = false;
+      setAxisOffset?.(pendingOffsetRef.current);
+    }
+    setDragOffset(null);
+    reportAxisDrag(false);
+  }, [detachWindowPointerListeners, reportAxisDrag, setAxisOffset]);
+
+  const cancelPendingAxisDrag = useCallback(() => {
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+    }
+    if (idleTimerRef.current !== null) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+    hasPendingOffsetRef.current = false;
+    detachWindowPointerListeners();
+    setDragOffset(null);
+    setOptimisticAxis(null);
+    reportAxisDrag(false);
+  }, [detachWindowPointerListeners, reportAxisDrag]);
+
+  useEffect(() => {
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (idleTimerRef.current !== null) clearTimeout(idleTimerRef.current);
+      detachWindowPointerListeners();
+    };
+  }, [detachWindowPointerListeners]);
+
+  const handleAxisSelect = useCallback(
+    (id) => {
+      if (id === displayedAxis) return;
+      setOptimisticAxis(id);
+      startAxisTransition(() => {
+        setAxis?.(id);
+      });
+    },
+    [displayedAxis, setAxis]
+  );
+
+  const handleOffsetPointerDown = useCallback(() => {
+    if (typeof window === 'undefined' || pointerCleanupRef.current) return;
+    const onPointerEnd = () => {
+      finalizeOffsetDrag();
+    };
+    window.addEventListener('pointerup', onPointerEnd);
+    window.addEventListener('pointercancel', onPointerEnd);
+    pointerCleanupRef.current = () => {
+      window.removeEventListener('pointerup', onPointerEnd);
+      window.removeEventListener('pointercancel', onPointerEnd);
+    };
+  }, [finalizeOffsetDrag]);
+
+  const handleOffsetChange = useCallback(
+    (e) => {
+      const nextVal = Math.round(parseFloat(e.target.value) * 10) / 10;
+      if (!Number.isFinite(nextVal)) return;
+
+      // Actualización inmediata a 60 FPS para el thumb y etiquetas visuales
+      setDragOffset(nextVal);
+      reportAxisDrag(true);
+
+      pendingOffsetRef.current = nextVal;
+      hasPendingOffsetRef.current = true;
+
+      // Emisión throttled a máximo 1 vez por requestAnimationFrame hacia el motor 3D/2D
+      if (!rafRef.current) {
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = 0;
+          if (!hasPendingOffsetRef.current) return;
+          hasPendingOffsetRef.current = false;
+          const valToCommit = pendingOffsetRef.current;
+          startTransition(() => {
+            setAxisOffset?.(valToCommit);
+          });
+        });
+      }
+
+      // Respaldo de estabilización a 150 ms tras inactividad (teclado o pausa prolongada)
+      if (idleTimerRef.current !== null) clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = setTimeout(finalizeOffsetDrag, 150);
+    },
+    [reportAxisDrag, setAxisOffset, finalizeOffsetDrag]
+  );
+
+  const handleResetDefaults = useCallback(() => {
+    cancelPendingAxisDrag();
+    onResetDefaults?.();
+  }, [cancelPendingAxisDrag, onResetDefaults]);
 
   const applyPreset = useCallback(
     (p) => {
+      cancelPendingAxisDrag();
       setPreset(p.label);
       setExpression(p.f);
       setUseG(Boolean(p.g));
@@ -123,7 +274,7 @@ const ControlsPanel = memo(function ControlsPanel({
       setAxis(p.axis);
       setAxisOffset(p.offset);
     },
-    [setExpression, setUseG, setGExpression, setAStr, setBStr, setAxis, setAxisOffset]
+    [cancelPendingAxisDrag, setPreset, setExpression, setUseG, setGExpression, setAStr, setBStr, setAxis, setAxisOffset]
   );
 
   const handlePresetSelect = useCallback(
@@ -134,8 +285,8 @@ const ControlsPanel = memo(function ControlsPanel({
     [applyPreset]
   );
 
-  const diffName = axis === 'x' ? 'arandela' : 'capa cilíndrica';
-  const diffPlural = axis === 'x' ? 'arandelas' : 'capas';
+  const diffName = displayedAxis === 'x' ? 'arandela' : 'capa cilíndrica';
+  const diffPlural = displayedAxis === 'x' ? 'arandelas' : 'capas';
   const isCrossSectionActive = angleDeg < 359.5;
 
   const handleToggleCrossSection = useCallback(
@@ -152,7 +303,7 @@ const ControlsPanel = memo(function ControlsPanel({
       setCutAnglePref(deg);
       setAngleDeg(deg);
     },
-    [setIsPlaying, setAngleDeg]
+    [setIsPlaying, setCutAnglePref, setAngleDeg]
   );
 
   const handleToggleRiemann = useCallback(
@@ -193,30 +344,45 @@ const ControlsPanel = memo(function ControlsPanel({
     >
       {/* Header */}
       <div className="p-4 pb-3 border-b border-slate-200/80">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-blue-50 text-blue-600 border border-blue-200">
-            <SlidersHorizontal className="w-4 h-4" />
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="p-1.5 rounded-lg bg-blue-50 text-blue-600 border border-blue-200 shrink-0">
+              <SlidersHorizontal className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="font-bold text-sm text-slate-800 tracking-tight truncate">Panel de control</h1>
+              <p className="text-[11px] text-slate-500 truncate">Define la región, el eje y el giro</p>
+            </div>
           </div>
-          <div>
-            <h1 className="font-bold text-sm text-slate-800 tracking-tight">Panel de control</h1>
-            <p className="text-[11px] text-slate-500">Define la región, el eje y el giro</p>
-          </div>
+
+          {onResetDefaults && (
+            <button
+              type="button"
+              onClick={handleResetDefaults}
+              title="Restablecer todos los controles y la cámara 3D a valores por defecto"
+              className="px-2 py-1 rounded-lg bg-white/90 hover:bg-blue-50 hover:border-blue-300 text-slate-600 hover:text-blue-700 border border-slate-200 text-[11px] font-medium shadow-xs flex items-center gap-1 transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer shrink-0"
+            >
+              <RotateCcw className="w-3 h-3 text-blue-600" />
+              <span>Restablecer</span>
+            </button>
+          )}
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex gap-1 mt-3 p-1 bg-slate-100/80 rounded-xl border border-slate-200/80 text-xs font-medium">
+        <div className="grid grid-cols-3 gap-1 mt-3 p-1 bg-slate-100/80 rounded-xl border border-slate-200/80 text-[11px] xl:text-xs font-semibold">
           {PANEL_TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               type="button"
               onClick={() => setActiveTab(id)}
-              className={`flex-1 py-1.5 px-2 rounded-lg transition-all duration-150 active:scale-[0.97] transform-gpu flex items-center justify-center gap-1.5 cursor-pointer ${
+              className={`flex items-center justify-center gap-1 xl:gap-1.5 py-1.5 px-1 sm:px-1.5 rounded-lg transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer whitespace-nowrap min-w-0 ${
                 activeTab === id
                   ? 'bg-blue-600 text-white font-semibold shadow-md shadow-blue-600/25'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-white/80'
               }`}
             >
-              <Icon className="w-3.5 h-3.5" /> {label}
+              <Icon className="w-3.5 h-3.5 shrink-0" />
+              <span className="whitespace-nowrap">{label}</span>
             </button>
           ))}
         </div>
@@ -340,15 +506,15 @@ const ControlsPanel = memo(function ControlsPanel({
               <label className="text-xs text-slate-600 font-medium">Eje de giro / revolución</label>
               <div className="grid grid-cols-2 gap-2">
                 {[
-                  { id: 'x', label: `Horizontal (y = ${axisOffset})` },
-                  { id: 'y', label: `Vertical (x = ${axisOffset})` },
+                  { id: 'x', label: `Horizontal (y = ${displayedOffset})` },
+                  { id: 'y', label: `Vertical (x = ${displayedOffset})` },
                 ].map(({ id, label }) => (
                   <button
                     key={id}
                     type="button"
-                    onClick={() => setAxis(id)}
+                    onClick={() => handleAxisSelect(id)}
                     className={`py-2 px-3 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer ${
-                      axis === id
+                      displayedAxis === id
                         ? 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-600/25'
                         : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900 hover:border-blue-300'
                     }`}
@@ -360,16 +526,20 @@ const ControlsPanel = memo(function ControlsPanel({
 
               <div className="space-y-1 pt-1">
                 <div className="flex justify-between text-xs text-slate-600">
-                  <span>Desplazamiento del eje ({axis === 'x' ? 'k' : 'c'})</span>
-                  <span className="font-mono text-blue-700 font-semibold tabular-nums">{axisOffset}</span>
+                  <span>Desplazamiento del eje ({displayedAxis === 'x' ? 'k' : 'c'})</span>
+                  <span className="font-mono text-blue-700 font-semibold tabular-nums">{displayedOffset}</span>
                 </div>
                 <input
                   type="range"
                   min="-5"
                   max="5"
                   step="0.2"
-                  value={axisOffset}
-                  onChange={(e) => setAxisOffset(Math.round(parseFloat(e.target.value) * 10) / 10)}
+                  value={displayedOffset}
+                  onPointerDown={handleOffsetPointerDown}
+                  onPointerUp={finalizeOffsetDrag}
+                  onPointerCancel={finalizeOffsetDrag}
+                  onBlur={finalizeOffsetDrag}
+                  onChange={handleOffsetChange}
                   className="w-full accent-blue-600 cursor-pointer"
                 />
               </div>
@@ -380,7 +550,7 @@ const ControlsPanel = memo(function ControlsPanel({
               <Layers className="w-3.5 h-3.5 mt-0.5 shrink-0 text-blue-600" />
               <span>
                 <b className="text-blue-900">Método:</b>{' '}
-                {axis === 'x'
+                {displayedAxis === 'x'
                   ? 'discos / arandelas (cortes perpendiculares al eje horizontal).'
                   : 'capas cilíndricas (cortes paralelos al eje vertical).'}{' '}
                 Se elige automáticamente según el eje.

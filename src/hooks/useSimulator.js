@@ -1,9 +1,10 @@
 /**
  * Hook: useSimulator
- * Concentra TODO el estado y los cálculos del simulador
- * para que persistan al navegar entre las vistas Teoría / Simulador / Desafíos.
+ * Estado y cálculos del simulador encapsulados por instancia del Cockpit (`SimulatorView`),
+ * con Single Source of Truth (`DEFAULT_SIMULATOR_STATE`) para reiniciarse de fábrica
+ * al cambiar de pestaña o pulsar el botón "Restablecer".
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useMathParser } from './useMathParser';
 import { useDebouncedValue } from './useDebouncedValue';
 import { analyzeExpression, parseBound } from '../math/expressionTools';
@@ -17,6 +18,50 @@ import { buildIntegralSteps } from '../math/symbolicEngine';
 
 const zeroFn = () => 0;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+export const DEFAULT_CAMERA_STATE = Object.freeze({
+  position: Object.freeze([6, 4.5, 7.5]),
+  target: Object.freeze([0, 0, 0]),
+  zoom: 1,
+});
+
+const createDefaultCameraState = () => ({
+  position: [...DEFAULT_CAMERA_STATE.position],
+  target: [...DEFAULT_CAMERA_STATE.target],
+  zoom: DEFAULT_CAMERA_STATE.zoom,
+});
+
+export const DEFAULT_SIMULATOR_STATE = Object.freeze({
+  expression: 'sqrt(x)',
+  useG: false,
+  gExpression: 'x^2',
+  aStr: '0',
+  bStr: '4',
+  axis: 'x', // 'x' → y = k (horizontal · arandelas) · 'y' → x = c (vertical · capas)
+  axisOffset: 0,
+  angleDeg: 360,
+  isPlaying: false,
+  slicesCount: 20,
+  showRiemann: false,
+  riemannMode: 'left', // 'left' (por defecto) | 'right' | 'midpoint'
+  showElement: true,
+  xi: 2,
+  wireframe: false,
+  opacity: 0.55,
+  panelTab: 'parameters',
+  preset: '',
+  cutAnglePref: 180,
+});
+
+const DEFAULT_INTEGRAL_CONFIG = Object.freeze({
+  expression: DEFAULT_SIMULATOR_STATE.expression,
+  useG: DEFAULT_SIMULATOR_STATE.useG,
+  gExpression: DEFAULT_SIMULATOR_STATE.gExpression,
+  aStr: DEFAULT_SIMULATOR_STATE.aStr,
+  bStr: DEFAULT_SIMULATOR_STATE.bStr,
+  axis: DEFAULT_SIMULATOR_STATE.axis,
+  axisOffset: DEFAULT_SIMULATOR_STATE.axisOffset,
+});
 
 /** Interpreta los límites de integración (texto) y los ordena de menor a mayor. */
 function resolveRange(aStr, bStr) {
@@ -101,6 +146,21 @@ function computeIntegralData({ expression, useG, gExpression, aStr, bStr, axis, 
   };
 }
 
+const EMPTY_EXACT_VOLUME = Object.freeze({
+  fullVolume: 0,
+  invalidFraction: 0,
+  isLinearIntegrand: false,
+});
+
+const EMPTY_RIEMANN_STATS = Object.freeze({
+  vApprox: 0,
+  vExact: 0,
+  relErrorPct: 0,
+  isLinearIntegrand: false,
+});
+
+const EMPTY_RIEMANN_SLICES = Object.freeze([]);
+
 const EMPTY_INTEGRAL_DATA = {
   steps: {
     method: 'washers',
@@ -113,30 +173,103 @@ const EMPTY_INTEGRAL_DATA = {
   warning: null,
 };
 
+const isSameIntegralConfig = (a, b) =>
+  a.expression === b.expression &&
+  a.useG === b.useG &&
+  a.gExpression === b.gExpression &&
+  a.aStr === b.aStr &&
+  a.bStr === b.bStr &&
+  a.axis === b.axis &&
+  a.axisOffset === b.axisOffset;
+
 export function useSimulator(isActive = true) {
-  // Parámetros matemáticos
-  const [expression, setExpression] = useState('sqrt(x)');
-  const [useG, setUseG] = useState(false);
-  const [gExpression, setGExpression] = useState('x^2');
-  const [aStr, setAStr] = useState('0');
-  const [bStr, setBStr] = useState('4');
-  const [axis, setAxis] = useState('x'); // 'x' → y = k (arandelas) · 'y' → x = c (capas)
-  const [axisOffset, setAxisOffset] = useState(0);
+  // Parámetros matemáticos (inicializados desde DEFAULT_SIMULATOR_STATE)
+  const [expression, setExpressionState] = useState(DEFAULT_SIMULATOR_STATE.expression);
+  const [useG, setUseGState] = useState(DEFAULT_SIMULATOR_STATE.useG);
+  const [gExpression, setGExpressionState] = useState(DEFAULT_SIMULATOR_STATE.gExpression);
+  const [aStr, setAStrState] = useState(DEFAULT_SIMULATOR_STATE.aStr);
+  const [bStr, setBStrState] = useState(DEFAULT_SIMULATOR_STATE.bStr);
+  const [axis, setAxisState] = useState(DEFAULT_SIMULATOR_STATE.axis);
+  const [axisOffset, setAxisOffsetState] = useState(DEFAULT_SIMULATOR_STATE.axisOffset);
+
+  // Desacople de estado interactivo vs pesado (KaTeX y malla 3D)
+  const [isAdjustingAxis, setIsAdjustingAxis] = useState(false);
+  const [integralDelayMs, setIntegralDelayMs] = useState(350);
+  const deferredAxis = useDeferredValue(axis);
+  const deferredAxisOffset = useDeferredValue(axisOffset);
+
+  const setExpression = useCallback((v) => {
+    setIntegralDelayMs(350);
+    setExpressionState(v);
+  }, []);
+  const setUseG = useCallback((v) => {
+    setIntegralDelayMs(150);
+    setUseGState(v);
+  }, []);
+  const setGExpression = useCallback((v) => {
+    setIntegralDelayMs(350);
+    setGExpressionState(v);
+  }, []);
+  const setAStr = useCallback((v) => {
+    setIntegralDelayMs(350);
+    setAStrState(v);
+  }, []);
+  const setBStr = useCallback((v) => {
+    setIntegralDelayMs(350);
+    setBStrState(v);
+  }, []);
+  const setAxis = useCallback((v) => {
+    setIntegralDelayMs(90);
+    setAxisState(v);
+  }, []);
+  const setAxisOffset = useCallback((v) => {
+    setIntegralDelayMs(90);
+    setAxisOffsetState(v);
+  }, []);
 
   // Animación del giro
-  const [angleDeg, setAngleDeg] = useState(360);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [angleDeg, setAngleDeg] = useState(DEFAULT_SIMULATOR_STATE.angleDeg);
+  const [isPlaying, setIsPlaying] = useState(DEFAULT_SIMULATOR_STATE.isPlaying);
 
   // Elemento diferencial / Riemann
-  const [slicesCount, setSlicesCount] = useState(20);
-  const [showRiemann, setShowRiemann] = useState(false);
-  const [riemannMode, setRiemannMode] = useState('left'); // 'left' (por defecto) | 'right' | 'midpoint'
-  const [showElement, setShowElement] = useState(true);
-  const [xi, setXi] = useState(2);
+  const [slicesCount, setSlicesCount] = useState(DEFAULT_SIMULATOR_STATE.slicesCount);
+  const [showRiemann, setShowRiemann] = useState(DEFAULT_SIMULATOR_STATE.showRiemann);
+  const [riemannMode, setRiemannMode] = useState(DEFAULT_SIMULATOR_STATE.riemannMode);
+  const [showElement, setShowElement] = useState(DEFAULT_SIMULATOR_STATE.showElement);
+  const [xi, setXi] = useState(DEFAULT_SIMULATOR_STATE.xi);
 
   // Vista (opacidad inicial 0.55 para ver con claridad la arandela dorada interna dx)
-  const [wireframe, setWireframe] = useState(false);
-  const [opacity, setOpacity] = useState(0.55);
+  const [wireframe, setWireframe] = useState(DEFAULT_SIMULATOR_STATE.wireframe);
+  const [opacity, setOpacity] = useState(DEFAULT_SIMULATOR_STATE.opacity);
+
+  // Sub-estado de UI del Panel de Control
+  const [panelTab, setPanelTab] = useState(DEFAULT_SIMULATOR_STATE.panelTab);
+  const [preset, setPreset] = useState(DEFAULT_SIMULATOR_STATE.preset);
+  const [cutAnglePref, setCutAnglePref] = useState(DEFAULT_SIMULATOR_STATE.cutAnglePref);
+
+  // Referencia de cámara 3D por sesión del Cockpit (vuelve al valor por defecto al re-montar o resetear)
+  const cameraStateRef = useRef(createDefaultCameraState());
+  const [cameraResetNonce, setCameraResetNonce] = useState(0);
+
+  // Control de visibilidad del navegador (pausa render y animaciones en document.hidden)
+  const [isDocVisible, setIsDocVisible] = useState(() =>
+    typeof document === 'undefined' ? true : !document.hidden
+  );
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const handleVisibilityChange = () => {
+      const visible = !document.hidden;
+      setIsDocVisible(visible);
+      if (!visible) {
+        setIsPlaying(false);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
+  const effectiveActive = Boolean(isActive && isDocVisible);
 
   // Validación inmediata (interfaz fluida)
   const fParsed = useMathParser(expression);
@@ -148,52 +281,39 @@ export function useSimulator(isActive = true) {
   const g = useG && gParsed.isValid ? gParsed.fn : zeroFn;
 
   // Cálculo del Volumen Exacto (Simpson 1/3) e integrando lineal memoizado:
-  // SOLO se recalcula cuando la pestaña Simulador está activa y cambia la función, los límites o el eje.
+  // SOLO se calcula cuando la pestaña Simulador está visible/activa, showRiemann está habilitado y no se arrastra k.
   const exactVolumeData = useMemo(() => {
-    if (!isActive || !fParsed.isValid || (useG && !gParsed.isValid) || !range.ok) {
-      return { fullVolume: 0, invalidFraction: 0, isLinearIntegrand: false };
+    if (
+      !effectiveActive ||
+      !showRiemann ||
+      isAdjustingAxis ||
+      !fParsed.isValid ||
+      (useG && !gParsed.isValid) ||
+      !range.ok
+    ) {
+      return EMPTY_EXACT_VOLUME;
     }
     const { fullVolume, invalidFraction } = computeVolume({
       f,
       g,
       a,
       b,
-      axis,
-      axisOffset,
+      axis: deferredAxis,
+      axisOffset: deferredAxisOffset,
     });
-    const isLinearIntegrand = isIntegrandLinear({ f, g, a, b, axis, axisOffset });
-    return { fullVolume, invalidFraction, isLinearIntegrand };
-  }, [isActive, fParsed.isValid, gParsed.isValid, useG, range.ok, f, g, a, b, axis, axisOffset]);
-
-  // Objeto de configuración memoizado para el cálculo simbólico/numérico diferido
-  const debouncedConfig = useMemo(
-    () => ({ expression, useG, gExpression, aStr, bStr, axis, axisOffset }),
-    [expression, useG, gExpression, aStr, bStr, axis, axisOffset]
-  );
-  const debounced = useDebouncedValue(debouncedConfig, 350);
-  const integralData = useMemo(
-    () => (isActive ? computeIntegralData(debounced) : EMPTY_INTEGRAL_DATA),
-    [isActive, debounced]
-  );
-
-  // Partición de la Suma de Riemann memoizada:
-  // SOLO se recalcula cuando el Simulador está activo y cambian la función, límites, eje, N o modo.
-  const riemannSlices = useMemo(() => {
-    if (!isActive || !fParsed.isValid || (useG && !gParsed.isValid) || !range.ok) {
-      return [];
-    }
-    return computeRiemannSlices({
+    const isLinearIntegrand = isIntegrandLinear({
       f,
       g,
       a,
       b,
-      axis,
-      axisOffset,
-      count: slicesCount,
-      mode: riemannMode,
+      axis: deferredAxis,
+      axisOffset: deferredAxisOffset,
     });
+    return { fullVolume, invalidFraction, isLinearIntegrand };
   }, [
-    isActive,
+    effectiveActive,
+    showRiemann,
+    isAdjustingAxis,
     fParsed.isValid,
     gParsed.isValid,
     useG,
@@ -202,27 +322,99 @@ export function useSimulator(isActive = true) {
     g,
     a,
     b,
-    axis,
-    axisOffset,
+    deferredAxis,
+    deferredAxisOffset,
+  ]);
+
+  // Objeto de configuración memoizado para el cálculo simbólico/numérico diferido.
+  // Se congela durante el arrastre activo del slider k (`paused = isAdjustingAxis`) para evitar compilar KaTeX en tiempo real.
+  const isAtDefaultFormula =
+    !isAdjustingAxis &&
+    expression === DEFAULT_SIMULATOR_STATE.expression &&
+    useG === DEFAULT_SIMULATOR_STATE.useG &&
+    gExpression === DEFAULT_SIMULATOR_STATE.gExpression &&
+    aStr === DEFAULT_SIMULATOR_STATE.aStr &&
+    bStr === DEFAULT_SIMULATOR_STATE.bStr &&
+    deferredAxis === DEFAULT_SIMULATOR_STATE.axis &&
+    deferredAxisOffset === DEFAULT_SIMULATOR_STATE.axisOffset;
+
+  const debouncedConfig = useMemo(
+    () => ({
+      expression,
+      useG,
+      gExpression,
+      aStr,
+      bStr,
+      axis: deferredAxis,
+      axisOffset: deferredAxisOffset,
+    }),
+    [expression, useG, gExpression, aStr, bStr, deferredAxis, deferredAxisOffset]
+  );
+  const debounced = useDebouncedValue(debouncedConfig, integralDelayMs, isAdjustingAxis);
+  const effectiveIntegralConfig =
+    isAtDefaultFormula && !isSameIntegralConfig(debounced, DEFAULT_INTEGRAL_CONFIG)
+      ? DEFAULT_INTEGRAL_CONFIG
+      : debounced;
+  const integralData = useMemo(
+    () => (effectiveActive ? computeIntegralData(effectiveIntegralConfig) : EMPTY_INTEGRAL_DATA),
+    [effectiveActive, effectiveIntegralConfig]
+  );
+
+  // Partición de la Suma de Riemann memoizada:
+  // SOLO se recalcula si está activa/visible y showRiemann está habilitado.
+  const riemannSlices = useMemo(() => {
+    if (
+      !effectiveActive ||
+      !showRiemann ||
+      !fParsed.isValid ||
+      (useG && !gParsed.isValid) ||
+      !range.ok
+    ) {
+      return EMPTY_RIEMANN_SLICES;
+    }
+    return computeRiemannSlices({
+      f,
+      g,
+      a,
+      b,
+      axis: deferredAxis,
+      axisOffset: deferredAxisOffset,
+      count: slicesCount,
+      mode: riemannMode,
+    });
+  }, [
+    effectiveActive,
+    showRiemann,
+    fParsed.isValid,
+    gParsed.isValid,
+    useG,
+    range.ok,
+    f,
+    g,
+    a,
+    b,
+    deferredAxis,
+    deferredAxisOffset,
     slicesCount,
     riemannMode,
   ]);
 
   // Comparación memoizada: Suma de Riemann (N elementos) vs. Volumen Exacto (Simpson / Simbólico)
   const riemannStats = useMemo(() => {
-    if (!fParsed.isValid || (useG && !gParsed.isValid) || !range.ok) {
-      return { vApprox: 0, vExact: 0, relErrorPct: 0, isLinearIntegrand: false };
+    if (!effectiveActive || !showRiemann || !fParsed.isValid || (useG && !gParsed.isValid) || !range.ok) {
+      return EMPTY_RIEMANN_STATS;
     }
     const vApprox = riemannSlices.reduce((acc, s) => acc + s.volume, 0);
     const simpsonExact = exactVolumeData.fullVolume;
     const isDebouncedSynced =
-      debounced.expression === expression &&
-      debounced.useG === useG &&
-      debounced.gExpression === gExpression &&
-      debounced.aStr === aStr &&
-      debounced.bStr === bStr &&
-      debounced.axis === axis &&
-      debounced.axisOffset === axisOffset;
+      isAtDefaultFormula ||
+      (debounced.expression === expression &&
+        debounced.useG === useG &&
+        debounced.gExpression === gExpression &&
+        debounced.aStr === aStr &&
+        debounced.bStr === bStr &&
+        debounced.axis === deferredAxis &&
+        debounced.axisOffset === deferredAxisOffset);
     const vExact =
       isDebouncedSynced && integralData.steps?.exactNumeric != null
         ? integralData.steps.exactNumeric
@@ -235,19 +427,22 @@ export function useSimulator(isActive = true) {
       isLinearIntegrand: exactVolumeData.isLinearIntegrand,
     };
   }, [
+    effectiveActive,
+    showRiemann,
     fParsed.isValid,
     gParsed.isValid,
     useG,
     range.ok,
     riemannSlices,
     exactVolumeData,
+    isAtDefaultFormula,
     debounced,
     expression,
     gExpression,
     aStr,
     bStr,
-    axis,
-    axisOffset,
+    deferredAxis,
+    deferredAxisOffset,
     integralData.steps,
   ]);
 
@@ -284,9 +479,9 @@ export function useSimulator(isActive = true) {
     angleDegRef.current = angleDeg;
   }, [angleDeg]);
 
-  // Bucle de animación del barrido angular (se detiene al completar 360° o al salir del Simulador)
+  // Bucle de animación del barrido angular (se detiene al completar 360°, salir del Simulador u ocultar pestaña)
   useEffect(() => {
-    if (!isPlaying || !isActive) return undefined;
+    if (!isPlaying || !effectiveActive) return undefined;
 
     let raf;
     let last = performance.now();
@@ -304,7 +499,34 @@ export function useSimulator(isActive = true) {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [isPlaying, isActive]);
+  }, [isPlaying, effectiveActive]);
+
+  // Restablecimiento explícito e inmediato a valores por defecto + cámara 3D
+  const resetSimulatorState = useCallback(() => {
+    setIsPlaying(DEFAULT_SIMULATOR_STATE.isPlaying);
+    setIsAdjustingAxis(false);
+    setIntegralDelayMs(350);
+    setExpressionState(DEFAULT_SIMULATOR_STATE.expression);
+    setUseGState(DEFAULT_SIMULATOR_STATE.useG);
+    setGExpressionState(DEFAULT_SIMULATOR_STATE.gExpression);
+    setAStrState(DEFAULT_SIMULATOR_STATE.aStr);
+    setBStrState(DEFAULT_SIMULATOR_STATE.bStr);
+    setAxisState(DEFAULT_SIMULATOR_STATE.axis);
+    setAxisOffsetState(DEFAULT_SIMULATOR_STATE.axisOffset);
+    setAngleDeg(DEFAULT_SIMULATOR_STATE.angleDeg);
+    setSlicesCount(DEFAULT_SIMULATOR_STATE.slicesCount);
+    setShowRiemann(DEFAULT_SIMULATOR_STATE.showRiemann);
+    setRiemannMode(DEFAULT_SIMULATOR_STATE.riemannMode);
+    setShowElement(DEFAULT_SIMULATOR_STATE.showElement);
+    setXi(DEFAULT_SIMULATOR_STATE.xi);
+    setWireframe(DEFAULT_SIMULATOR_STATE.wireframe);
+    setOpacity(DEFAULT_SIMULATOR_STATE.opacity);
+    setPanelTab(DEFAULT_SIMULATOR_STATE.panelTab);
+    setPreset(DEFAULT_SIMULATOR_STATE.preset);
+    setCutAnglePref(DEFAULT_SIMULATOR_STATE.cutAnglePref);
+    cameraStateRef.current = createDefaultCameraState();
+    setCameraResetNonce((n) => n + 1);
+  }, []);
 
   const boundsStatus = useMemo(
     () => ({
@@ -324,14 +546,26 @@ export function useSimulator(isActive = true) {
     bStr, setBStr,
     axis, setAxis,
     axisOffset, setAxisOffset,
+    deferredAxis, deferredAxisOffset,
+    isAdjustingAxis, setIsAdjustingAxis,
     angleDeg, setAngleDeg,
     isPlaying, setIsPlaying,
     slicesCount, setSlicesCount,
     showRiemann, setShowRiemann,
     riemannMode, setRiemannMode,
     showElement, setShowElement,
+    xi, setXi,
     wireframe, setWireframe,
     opacity, setOpacity,
+    panelTab, setPanelTab,
+    preset, setPreset,
+    cutAnglePref, setCutAnglePref,
+    // cámara 3D + visibilidad + reset
+    cameraStateRef,
+    cameraResetNonce,
+    isDocVisible,
+    resetSimulatorState,
+    resetDefaults: resetSimulatorState,
     // derivados
     fParsed, gParsed, range, a, b, f, g,
     integralData, riemannSlices, riemannStats,

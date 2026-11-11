@@ -33,6 +33,8 @@ const radiusOf = (p, axis, offset) => (axis === 'x' ? p.y - offset : p.x - offse
 
 /**
  * Superficie de revolución de una polilínea.
+ * Preasigna TypedArrays (`Float32Array` y `Uint16Array`/`Uint32Array`) y tablas
+ * trigonométricas de θ para eliminar miles de asignaciones por cuadro.
  * @param {{x:number,y:number}[]} points
  * @returns {THREE.BufferGeometry|null}
  */
@@ -45,8 +47,13 @@ export function createRevolvedPolyline({
 }) {
   if (!points || points.length < 2) return null;
 
+  const isHorizontal = axis === 'x';
   // Descarta curvas degeneradas (colapsadas sobre el eje o de longitud nula)
-  const maxR = Math.max(...points.map((p) => Math.abs(radiusOf(p, axis, axisOffset))));
+  let maxR = 0;
+  for (let i = 0; i < points.length; i++) {
+    const r = Math.abs(radiusOf(points[i], axis, axisOffset));
+    if (r > maxR) maxR = r;
+  }
   const first = points[0];
   const last = points[points.length - 1];
   const spanSq = (first.x - last.x) ** 2 + (first.y - last.y) ** 2;
@@ -54,30 +61,66 @@ export function createRevolvedPolyline({
   if (maxR < 1e-9 || (isLine && spanSq < 1e-18)) return null;
 
   const sweep = Math.max(0.001, Math.min(TWO_PI, angle));
-  const positions = [];
-  const indices = [];
+  const ptCount = points.length;
   const stride = thetaSegments + 1;
+  const vertexCount = ptCount * stride;
 
-  for (let i = 0; i < points.length; i++) {
-    for (let j = 0; j <= thetaSegments; j++) {
-      const theta = (j / thetaSegments) * sweep;
-      positions.push(...rotatePoint(points[i].x, points[i].y, axis, axisOffset, theta));
+  const cosTable = new Float64Array(stride);
+  const sinTable = new Float64Array(stride);
+  for (let j = 0; j <= thetaSegments; j++) {
+    const theta = (j / thetaSegments) * sweep;
+    cosTable[j] = Math.cos(theta);
+    sinTable[j] = Math.sin(theta);
+  }
+
+  const positions = new Float32Array(vertexCount * 3);
+  let posPtr = 0;
+  if (isHorizontal) {
+    for (let i = 0; i < ptCount; i++) {
+      const px = points[i].x;
+      const r = points[i].y - axisOffset;
+      for (let j = 0; j <= thetaSegments; j++) {
+        positions[posPtr++] = px;
+        positions[posPtr++] = axisOffset + r * cosTable[j];
+        positions[posPtr++] = r * sinTable[j];
+      }
+    }
+  } else {
+    for (let i = 0; i < ptCount; i++) {
+      const py = points[i].y;
+      const r = points[i].x - axisOffset;
+      for (let j = 0; j <= thetaSegments; j++) {
+        positions[posPtr++] = axisOffset + r * cosTable[j];
+        positions[posPtr++] = py;
+        positions[posPtr++] = r * sinTable[j];
+      }
     }
   }
 
-  for (let i = 0; i < points.length - 1; i++) {
+  const quadCount = (ptCount - 1) * thetaSegments;
+  const indices =
+    vertexCount > 65535 ? new Uint32Array(quadCount * 6) : new Uint16Array(quadCount * 6);
+  let idxPtr = 0;
+  for (let i = 0; i < ptCount - 1; i++) {
+    const row0 = i * stride;
+    const row1 = (i + 1) * stride;
     for (let j = 0; j < thetaSegments; j++) {
-      const p1 = i * stride + j;
+      const p1 = row0 + j;
       const p2 = p1 + 1;
-      const p3 = (i + 1) * stride + j;
+      const p3 = row1 + j;
       const p4 = p3 + 1;
-      indices.push(p1, p2, p3, p2, p4, p3);
+      indices[idxPtr++] = p1;
+      indices[idxPtr++] = p2;
+      indices[idxPtr++] = p3;
+      indices[idxPtr++] = p2;
+      indices[idxPtr++] = p4;
+      indices[idxPtr++] = p3;
     }
   }
 
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setIndex(indices);
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeVertexNormals();
   return geometry;
 }
@@ -98,7 +141,13 @@ function sampleCurve(fn, a, b, segments) {
 const mergeOrNull = (geoms) => {
   const valid = geoms.filter(Boolean);
   if (valid.length === 0) return null;
-  return valid.length === 1 ? valid[0] : mergeGeometries(valid, false);
+  if (valid.length === 1) return valid[0];
+  const merged = mergeGeometries(valid, false);
+  // Libera los buffers temporales ya copiados en la geometría fusionada
+  for (let i = 0; i < valid.length; i++) {
+    valid[i].dispose();
+  }
+  return merged;
 };
 
 /**
@@ -142,21 +191,56 @@ export function createSweepCaps({ f, g, a, b, axis, axisOffset, angle, xSegments
 
   const fCurve = sampleCurve(f, a, b, xSegments);
   const gCurve = sampleCurve(g, a, b, xSegments);
+  const isHorizontal = axis === 'x';
+  const vertexCount = (xSegments + 1) * 2;
+  const indices =
+    vertexCount > 65535 ? new Uint32Array(xSegments * 6) : new Uint16Array(xSegments * 6);
+  let idxPtr = 0;
+  for (let i = 0; i < xSegments; i++) {
+    const p1 = i * 2;
+    indices[idxPtr++] = p1;
+    indices[idxPtr++] = p1 + 1;
+    indices[idxPtr++] = p1 + 2;
+    indices[idxPtr++] = p1 + 1;
+    indices[idxPtr++] = p1 + 3;
+    indices[idxPtr++] = p1 + 2;
+  }
 
   const faceAt = (theta) => {
-    const positions = [];
-    const indices = [];
-    for (let i = 0; i <= xSegments; i++) {
-      positions.push(...rotatePoint(gCurve[i].x, gCurve[i].y, axis, axisOffset, theta));
-      positions.push(...rotatePoint(fCurve[i].x, fCurve[i].y, axis, axisOffset, theta));
+    const c = Math.cos(theta);
+    const s = Math.sin(theta);
+    const positions = new Float32Array(vertexCount * 3);
+    let posPtr = 0;
+
+    if (isHorizontal) {
+      for (let i = 0; i <= xSegments; i++) {
+        const rg = gCurve[i].y - axisOffset;
+        positions[posPtr++] = gCurve[i].x;
+        positions[posPtr++] = axisOffset + rg * c;
+        positions[posPtr++] = rg * s;
+
+        const rf = fCurve[i].y - axisOffset;
+        positions[posPtr++] = fCurve[i].x;
+        positions[posPtr++] = axisOffset + rf * c;
+        positions[posPtr++] = rf * s;
+      }
+    } else {
+      for (let i = 0; i <= xSegments; i++) {
+        const rg = gCurve[i].x - axisOffset;
+        positions[posPtr++] = axisOffset + rg * c;
+        positions[posPtr++] = gCurve[i].y;
+        positions[posPtr++] = rg * s;
+
+        const rf = fCurve[i].x - axisOffset;
+        positions[posPtr++] = axisOffset + rf * c;
+        positions[posPtr++] = fCurve[i].y;
+        positions[posPtr++] = rf * s;
+      }
     }
-    for (let i = 0; i < xSegments; i++) {
-      const p1 = i * 2;
-      indices.push(p1, p1 + 1, p1 + 2, p1 + 1, p1 + 3, p1 + 2);
-    }
+
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geo.setIndex(indices);
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setIndex(new THREE.BufferAttribute(indices.slice(), 1));
     geo.computeVertexNormals();
     return geo;
   };

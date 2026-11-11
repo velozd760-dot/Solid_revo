@@ -1,4 +1,12 @@
-import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import React, {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, Line } from '@react-three/drei';
 import * as THREE from 'three';
@@ -21,20 +29,49 @@ const COLORS = {
   axis: '#e11d48',
 };
 
-const CAMERA_CONFIG = { position: [6, 4.5, 7.5], fov: 45 };
-const DPR_RANGE = [1, 1.5];
+const DEFAULT_CAMERA_POSITION = [6, 4.5, 7.5];
+const DEFAULT_CAMERA_TARGET = [0, 0, 0];
+const DEFAULT_CAMERA_ZOOM = 1;
+const DEFAULT_CAMERA_CONFIG = {
+  position: DEFAULT_CAMERA_POSITION,
+  fov: 45,
+  zoom: DEFAULT_CAMERA_ZOOM,
+};
+
+const DPR_RANGE = [
+  1,
+  typeof window !== 'undefined' ? Math.max(1, Math.min(window.devicePixelRatio || 1, 1.5)) : 1.5,
+];
+
 const GL_CONFIG = {
+  powerPreference: 'low-power',
   antialias: true,
   alpha: true,
   preserveDrawingBuffer: true,
-  powerPreference: 'high-performance',
 };
 
+const LOD_HIGH = Object.freeze({
+  solidXSegments: 64,
+  solidThetaSegments: 72,
+  capsXSegments: 48,
+  elementThetaSegments: 56,
+  slicesThetaSegments: 32,
+});
+
+const LOD_DRAFT = Object.freeze({
+  solidXSegments: 24,
+  solidThetaSegments: 24,
+  capsXSegments: 16,
+  elementThetaSegments: 20,
+  slicesThetaSegments: 14,
+});
+
 /**
- * Libera la memoria de la geometría en GPU cada vez que se reemplaza,
- * y ejecuta material.dispose() cuando cambia la función analítica (f, g) o al desmontar.
+ * Libera estrictamente la geometría anterior en GPU cada vez que se recalcula
+ * la malla o al desmontar. El material (y su shader GLSL compilado) se conserva
+ * vivo durante el arrastre de k y los cambios de eje, liberándose solo al desmontar.
  */
-function useDisposableMesh(geometry, materialRef, f, g) {
+function useDisposableMesh(geometry, materialRef) {
   useEffect(() => {
     return () => {
       if (geometry) {
@@ -46,15 +83,14 @@ function useDisposableMesh(geometry, materialRef, f, g) {
   useEffect(() => {
     const material = materialRef?.current;
     return () => {
-      if (material) {
-        if (Array.isArray(material)) {
-          material.forEach((m) => m?.dispose?.());
-        } else {
-          material.dispose?.();
-        }
+      if (!material) return;
+      if (Array.isArray(material)) {
+        material.forEach((m) => m?.dispose?.());
+      } else {
+        material.dispose?.();
       }
     };
-  }, [f, g, materialRef]);
+  }, [materialRef]);
 
   return geometry;
 }
@@ -71,32 +107,59 @@ const RevolutionSolid = memo(function RevolutionSolid({
   wireframe,
   opacity,
   ghost,
+  xSegments = LOD_HIGH.solidXSegments,
+  thetaSegments = LOD_HIGH.solidThetaSegments,
+  capsXSegments = LOD_HIGH.capsXSegments,
 }) {
   const solidMaterialRef = useRef(null);
   const capsMaterialRef = useRef(null);
 
   const solid = useDisposableMesh(
     useMemo(
-      () => createSolidGeometry({ f, g, a, b, axis, axisOffset, angle: angleRad }),
-      [f, g, a, b, axis, axisOffset, angleRad]
+      () =>
+        createSolidGeometry({
+          f,
+          g,
+          a,
+          b,
+          axis,
+          axisOffset,
+          angle: angleRad,
+          xSegments,
+          thetaSegments,
+        }),
+      [f, g, a, b, axis, axisOffset, angleRad, xSegments, thetaSegments]
     ),
-    solidMaterialRef,
-    f,
-    g
+    solidMaterialRef
   );
 
   const caps = useDisposableMesh(
     useMemo(
-      () => createSweepCaps({ f, g, a, b, axis, axisOffset, angle: angleRad }),
-      [f, g, a, b, axis, axisOffset, angleRad]
+      () =>
+        createSweepCaps({
+          f,
+          g,
+          a,
+          b,
+          axis,
+          axisOffset,
+          angle: angleRad,
+          xSegments: capsXSegments,
+        }),
+      [f, g, a, b, axis, axisOffset, angleRad, capsXSegments]
     ),
-    capsMaterialRef,
-    f,
-    g
+    capsMaterialRef
   );
 
   const alpha = ghost ? Math.min(opacity, 0.16) : opacity;
   const transparent = alpha < 0.99;
+
+  useEffect(() => {
+    const mat = solidMaterialRef.current;
+    if (mat) {
+      mat.needsUpdate = true;
+    }
+  }, [transparent]);
 
   return (
     <group>
@@ -148,6 +211,7 @@ const RiemannSlices = memo(function RiemannSlices({
   angleRad,
   selectedIndex,
   wireframe,
+  thetaSegments = LOD_HIGH.slicesThetaSegments,
 }) {
   const sliceMaterialRef = useRef(null);
 
@@ -169,12 +233,11 @@ const RiemannSlices = memo(function RiemannSlices({
           axisOffset,
           angle: angleRad,
           excludeIndex: selectedIndex,
+          thetaSegments,
         }),
-      [slices, f, g, axis, axisOffset, angleRad, selectedIndex]
+      [slices, f, g, axis, axisOffset, angleRad, selectedIndex, thetaSegments]
     ),
-    sliceMaterialRef,
-    f,
-    g
+    sliceMaterialRef
   );
 
   return geometry ? (
@@ -204,6 +267,7 @@ const DifferentialElement = memo(function DifferentialElement({
   axisOffset,
   angleRad,
   radialExpand = 0.004,
+  thetaSegments = LOD_HIGH.elementThetaSegments,
 }) {
   const elementMaterialRef = useRef(null);
 
@@ -219,13 +283,12 @@ const DifferentialElement = memo(function DifferentialElement({
           axis,
           axisOffset,
           angle: angleRad,
+          thetaSegments,
           radialExpand,
         }),
-      [f, g, xc, xSample, dx, axis, axisOffset, angleRad, radialExpand]
+      [f, g, xc, xSample, dx, axis, axisOffset, angleRad, thetaSegments, radialExpand]
     ),
-    elementMaterialRef,
-    f,
-    g
+    elementMaterialRef
   );
 
   return geometry ? (
@@ -267,6 +330,204 @@ const AxisLine = memo(function AxisLine({ axis, axisOffset, bounds }) {
   return <Line points={points} color={COLORS.axis} lineWidth={2.5} />;
 });
 
+/**
+ * Persistencia y transición suave de la cámara 3D sin bucles useFrame en reposo.
+ * - Restaura position, target y zoom desde cameraStateRef al montar OrbitControls.
+ * - Guarda las coordenadas actuales al desmontar o cuando cambia OrbitControls.
+ * - Ejecuta la transición suave (cubic-out) hacia la cámara por defecto SOLO con "Centrar" o reset explícito.
+ */
+const CameraRig = memo(function CameraRig({
+  controlsRef,
+  cameraStateRef,
+  cameraResetNonce = 0,
+  canRender,
+  smoothResetFnRef,
+  cancelResetFnRef,
+  isRestoringRef,
+}) {
+  const getThree = useThree((state) => state.get);
+  const invalidate = useThree((state) => state.invalidate);
+  const canRenderRef = useRef(canRender);
+  const resetRafRef = useRef(0);
+  const prevResetNonceRef = useRef(cameraResetNonce);
+
+  const syncCameraToRef = useCallback(
+    (controls) => {
+      if (!cameraStateRef) return;
+      const { camera } = getThree();
+      if (!camera) return;
+      const targetVec = controls?.target;
+      cameraStateRef.current = {
+        position: [camera.position.x, camera.position.y, camera.position.z],
+        target: targetVec
+          ? [targetVec.x, targetVec.y, targetVec.z]
+          : [...DEFAULT_CAMERA_TARGET],
+        zoom: camera.zoom,
+      };
+    },
+    [getThree, cameraStateRef]
+  );
+
+  const cancelSmoothReset = useCallback(() => {
+    if (resetRafRef.current) {
+      cancelAnimationFrame(resetRafRef.current);
+      resetRafRef.current = 0;
+    }
+  }, []);
+
+  useEffect(() => {
+    canRenderRef.current = canRender;
+    if (!canRender) {
+      cancelSmoothReset();
+    }
+  }, [canRender, cancelSmoothReset]);
+
+  useLayoutEffect(() => {
+    const { camera } = getThree();
+    const controls = controlsRef.current;
+    const saved = cameraStateRef?.current;
+
+    if (camera) {
+      isRestoringRef.current = true;
+      if (saved) {
+        const [px, py, pz] = saved.position ?? DEFAULT_CAMERA_POSITION;
+        const [tx, ty, tz] = saved.target ?? DEFAULT_CAMERA_TARGET;
+        const zoom =
+          Number.isFinite(saved.zoom) && saved.zoom > 0 ? saved.zoom : DEFAULT_CAMERA_ZOOM;
+
+        camera.position.set(px, py, pz);
+        camera.zoom = zoom;
+        camera.updateProjectionMatrix();
+
+        if (controls) {
+          const prevDamping = controls.enableDamping;
+          controls.enableDamping = false;
+          controls.target.set(tx, ty, tz);
+          controls.update();
+          controls.enableDamping = prevDamping;
+        }
+      } else if (controls) {
+        controls.update();
+      }
+      isRestoringRef.current = false;
+    }
+
+    if (canRenderRef.current) {
+      invalidate();
+    }
+
+    return () => {
+      cancelSmoothReset();
+      syncCameraToRef(controls);
+    };
+  }, [getThree, controlsRef, cameraStateRef, invalidate, syncCameraToRef, cancelSmoothReset, isRestoringRef]);
+
+  const startSmoothReset = useCallback(() => {
+    cancelSmoothReset();
+
+    const { camera } = getThree();
+    if (!camera) return;
+
+    const controls = controlsRef.current;
+    const endPos = new THREE.Vector3(...DEFAULT_CAMERA_POSITION);
+    const endTarget = new THREE.Vector3(...DEFAULT_CAMERA_TARGET);
+    const endZoom = DEFAULT_CAMERA_ZOOM;
+
+    const startPos = camera.position.clone();
+    const startTarget = controls
+      ? controls.target.clone()
+      : new THREE.Vector3(...DEFAULT_CAMERA_TARGET);
+    const startZoom = camera.zoom;
+
+    const applySnap = () => {
+      const liveControls = controlsRef.current ?? controls;
+      isRestoringRef.current = true;
+      camera.position.copy(endPos);
+      camera.zoom = endZoom;
+      camera.updateProjectionMatrix();
+      if (liveControls) {
+        const prevDamping = liveControls.enableDamping;
+        liveControls.enableDamping = false;
+        liveControls.target.copy(endTarget);
+        liveControls.update();
+        liveControls.enableDamping = prevDamping;
+      }
+      isRestoringRef.current = false;
+      syncCameraToRef(liveControls);
+      if (canRenderRef.current) {
+        invalidate();
+      }
+    };
+
+    const posDist = startPos.distanceTo(endPos);
+    const targetDist = startTarget.distanceTo(endTarget);
+    const zoomDiff = Math.abs(startZoom - endZoom);
+
+    if (!canRenderRef.current || (posDist < 1e-3 && targetDist < 1e-3 && zoomDiff < 1e-3)) {
+      applySnap();
+      return;
+    }
+
+    const durationMs = 380;
+    const startTime = performance.now();
+
+    const step = (now) => {
+      if (!canRenderRef.current) {
+        resetRafRef.current = 0;
+        applySnap();
+        return;
+      }
+
+      const t = Math.min(1, (now - startTime) / durationMs);
+      const ease = 1 - Math.pow(1 - t, 3);
+      const liveControls = controlsRef.current ?? controls;
+
+      isRestoringRef.current = true;
+      camera.position.lerpVectors(startPos, endPos, ease);
+      camera.zoom = THREE.MathUtils.lerp(startZoom, endZoom, ease);
+      camera.updateProjectionMatrix();
+
+      if (liveControls) {
+        const prevDamping = liveControls.enableDamping;
+        liveControls.enableDamping = false;
+        liveControls.target.lerpVectors(startTarget, endTarget, ease);
+        liveControls.update();
+        liveControls.enableDamping = prevDamping;
+      }
+      isRestoringRef.current = false;
+
+      syncCameraToRef(liveControls);
+      invalidate();
+
+      if (t < 1) {
+        resetRafRef.current = requestAnimationFrame(step);
+      } else {
+        resetRafRef.current = 0;
+      }
+    };
+
+    resetRafRef.current = requestAnimationFrame(step);
+  }, [getThree, controlsRef, invalidate, syncCameraToRef, cancelSmoothReset, isRestoringRef]);
+
+  useEffect(() => {
+    if (smoothResetFnRef) smoothResetFnRef.current = startSmoothReset;
+    if (cancelResetFnRef) cancelResetFnRef.current = cancelSmoothReset;
+    return () => {
+      if (smoothResetFnRef) smoothResetFnRef.current = null;
+      if (cancelResetFnRef) cancelResetFnRef.current = null;
+    };
+  }, [smoothResetFnRef, cancelResetFnRef, startSmoothReset, cancelSmoothReset]);
+
+  useEffect(() => {
+    if (cameraResetNonce !== prevResetNonceRef.current) {
+      prevResetNonceRef.current = cameraResetNonce;
+      startSmoothReset();
+    }
+  }, [cameraResetNonce, startSmoothReset]);
+
+  return null;
+});
+
 const DEFAULT_ELEMENT_3D = { xc: 0, xSample: 0, dx: 0.1, index: 0 };
 
 const Scene = memo(function Scene({
@@ -286,20 +547,25 @@ const Scene = memo(function Scene({
   sampleMode,
   wireframe = false,
   opacity = 0.55,
+  canRender = true,
+  isDraftLod = false,
 }) {
   const invalidate = useThree((state) => state.invalidate);
   const resolvedMode = sampleMode ?? riemannMode ?? 'left';
   const safeElement = element ?? DEFAULT_ELEMENT_3D;
   const angleRad = (angleDeg * Math.PI) / 180;
+  const lod = isDraftLod ? LOD_DRAFT : LOD_HIGH;
   const bounds = useMemo(
     () => computeSolidBounds({ f, g, a, b, axis, axisOffset }),
     [f, g, a, b, axis, axisOffset]
   );
 
-  // Solicita un nuevo frame bajo demanda cuando cambia cualquier propiedad de la escena 3D
+  // Solicita un nuevo frame bajo demanda únicamente cuando el visor está visible/activo y cambian parámetros
   useEffect(() => {
+    if (!canRender) return;
     invalidate();
   }, [
+    canRender,
     invalidate,
     f,
     g,
@@ -318,6 +584,7 @@ const Scene = memo(function Scene({
     resolvedMode,
     wireframe,
     opacity,
+    isDraftLod,
   ]);
 
   // Normaliza el tamaño del sólido para que siempre quepa en la vista (memoizado)
@@ -361,6 +628,9 @@ const Scene = memo(function Scene({
           wireframe={wireframe}
           opacity={opacity}
           ghost={showRiemann}
+          xSegments={lod.solidXSegments}
+          thetaSegments={lod.solidThetaSegments}
+          capsXSegments={lod.capsXSegments}
         />
 
         {showRiemann && (
@@ -377,6 +647,7 @@ const Scene = memo(function Scene({
             angleRad={angleRad}
             selectedIndex={safeElement.index}
             wireframe={wireframe}
+            thetaSegments={lod.slicesThetaSegments}
           />
         )}
 
@@ -391,6 +662,7 @@ const Scene = memo(function Scene({
             axisOffset={axisOffset}
             angleRad={angleRad}
             radialExpand={showRiemann ? 0.005 : 0.002}
+            thetaSegments={lod.elementThetaSegments}
           />
         )}
 
@@ -400,10 +672,57 @@ const Scene = memo(function Scene({
   );
 });
 
-const Canvas3D = memo(function Canvas3D(props) {
+const Canvas3D = memo(function Canvas3D({
+  f,
+  g,
+  a = 0,
+  b = 4,
+  axis = 'x',
+  axisOffset = 0,
+  angleDeg = 360,
+  slicesCount = 20,
+  element = DEFAULT_ELEMENT_3D,
+  showElement = true,
+  showRiemann = false,
+  riemannMode = 'left',
+  riemannSlices,
+  sampleMode,
+  wireframe = false,
+  opacity = 0.55,
+  cameraStateRef,
+  cameraResetNonce = 0,
+  isVisible = true,
+  isDraftLod = false,
+}) {
   const controlsRef = useRef(null);
   const r3fRef = useRef(null);
-  const { axis = 'x', element = DEFAULT_ELEMENT_3D, showElement = true, showRiemann = false } = props;
+  const smoothResetFnRef = useRef(null);
+  const cancelResetFnRef = useRef(null);
+  const isRestoringRef = useRef(false);
+
+  const [isDocVisible, setIsDocVisible] = useState(() =>
+    typeof document === 'undefined' ? true : !document.hidden
+  );
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const handleVisibilityChange = () => {
+      setIsDocVisible(!document.hidden);
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
+  const canRender = Boolean(isVisible && isDocVisible);
+  const canRenderRef = useRef(canRender);
+
+  useEffect(() => {
+    canRenderRef.current = canRender;
+    if (canRender) {
+      r3fRef.current?.invalidate?.();
+    }
+  }, [canRender]);
+
   const safeElement = element ?? DEFAULT_ELEMENT_3D;
   const elementLabel = axis === 'x' ? 'Arandela dx' : 'Capa cilíndrica dx';
 
@@ -454,18 +773,41 @@ const Canvas3D = memo(function Canvas3D(props) {
   }, []);
 
   const handleResetCamera = useCallback(() => {
-    controlsRef.current?.reset();
-    r3fRef.current?.invalidate?.();
+    smoothResetFnRef.current?.();
+  }, []);
+
+  const handleControlsStart = useCallback(() => {
+    cancelResetFnRef.current?.();
   }, []);
 
   const handleControlsChange = useCallback(() => {
-    r3fRef.current?.invalidate?.();
-  }, []);
+    if (isRestoringRef.current) return;
+
+    const ctx = r3fRef.current;
+    const controls = controlsRef.current;
+    if (cameraStateRef && ctx?.camera) {
+      const cam = ctx.camera;
+      const target = controls?.target;
+      cameraStateRef.current = {
+        position: [cam.position.x, cam.position.y, cam.position.z],
+        target: target
+          ? [target.x, target.y, target.z]
+          : [...DEFAULT_CAMERA_TARGET],
+        zoom: cam.zoom,
+      };
+    }
+
+    if (canRenderRef.current) {
+      ctx?.invalidate?.();
+    }
+  }, [cameraStateRef]);
 
   const handleCreated = useCallback((state) => {
     r3fRef.current = state;
     state.gl.setClearColor(0x000000, 0);
-    state.invalidate();
+    if (canRenderRef.current) {
+      state.invalidate();
+    }
   }, []);
 
   return (
@@ -516,22 +858,52 @@ const Canvas3D = memo(function Canvas3D(props) {
       </div>
 
       <Canvas
-        frameloop="demand"
+        frameloop={canRender ? 'demand' : 'never'}
         dpr={DPR_RANGE}
-        camera={CAMERA_CONFIG}
+        camera={DEFAULT_CAMERA_CONFIG}
         gl={GL_CONFIG}
         onCreated={handleCreated}
       >
         <OrbitControls
           ref={controlsRef}
           makeDefault
+          enabled={canRender}
           enableDamping
           dampingFactor={0.06}
           minDistance={1.5}
           maxDistance={40}
+          onStart={handleControlsStart}
           onChange={handleControlsChange}
         />
-        <Scene {...props} />
+        <CameraRig
+          controlsRef={controlsRef}
+          cameraStateRef={cameraStateRef}
+          cameraResetNonce={cameraResetNonce}
+          canRender={canRender}
+          smoothResetFnRef={smoothResetFnRef}
+          cancelResetFnRef={cancelResetFnRef}
+          isRestoringRef={isRestoringRef}
+        />
+        <Scene
+          f={f}
+          g={g}
+          a={a}
+          b={b}
+          axis={axis}
+          axisOffset={axisOffset}
+          angleDeg={angleDeg}
+          slicesCount={slicesCount}
+          element={safeElement}
+          showElement={showElement}
+          showRiemann={showRiemann}
+          riemannMode={riemannMode}
+          riemannSlices={riemannSlices}
+          sampleMode={sampleMode}
+          wireframe={wireframe}
+          opacity={opacity}
+          canRender={canRender}
+          isDraftLod={isDraftLod}
+        />
       </Canvas>
     </div>
   );

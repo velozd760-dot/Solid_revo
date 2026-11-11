@@ -1,11 +1,11 @@
 /**
  * Hook: useDebouncedValue
  * Retrasa la propagación de un objeto de valores primitivos (comparado por contenido).
- * Útil para no lanzar el cálculo simbólico en cada pulsación de tecla.
+ * Útil para no lanzar el cálculo simbólico ni KaTeX en cada pulsación de tecla o arrastre activo.
  */
 import { useEffect, useState } from 'react';
 
-export function useDebouncedValue(value, delay = 300) {
+export function useDebouncedValue(value, delay = 300, paused = false) {
   const [debounced, setDebounced] = useState(value);
   let key = '';
   try {
@@ -15,8 +15,8 @@ export function useDebouncedValue(value, delay = 300) {
   }
 
   useEffect(() => {
+    if (paused || !key) return undefined;
     const id = setTimeout(() => {
-      if (!key) return;
       try {
         setDebounced(JSON.parse(key));
       } catch {
@@ -24,7 +24,7 @@ export function useDebouncedValue(value, delay = 300) {
       }
     }, delay);
     return () => clearTimeout(id);
-  }, [key, delay]);
+  }, [key, delay, paused]);
 
   return debounced;
 }

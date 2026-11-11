@@ -3,16 +3,23 @@ import ControlsPanel from '../components/ControlsPanel';
 import Canvas2D from '../components/Canvas2D';
 import Canvas3D from '../components/Canvas3D';
 import IntegralLatex from '../components/IntegralLatex';
+import { useSimulator } from '../hooks/useSimulator';
 
 /**
- * Vista "Simulador": tarjetas blancas con bordes redondeados y sombras limpias
- * que muerden ligeramente el Hero oscuro superior gracias al -mt-8 del contenedor padre.
+ * Vista "Simulador" en Cockpit de Alta Densidad ("Todo en una sola toma" · 100vh Zero-Scroll):
+ * - El estado vive localmente dentro del Cockpit (`useSimulator`): al salir a Inicio/Teoría/Desafíos
+ *   el componente se desmonta y al volver a entrar se monta limpio con `DEFAULT_SIMULATOR_STATE`.
+ * - Columna 1 (col-span-3): Panel de Control con scroll interno independiente
+ * - Columna Central (col-span-6): Plano 2D (h-1/2) y Visor WebGL 3D (h-1/2) apilados verticalmente
+ * - Columna Derecha (col-span-3): Desglose matemático paso a paso con scroll interno independiente
  */
-const SimulatorView = memo(function SimulatorView({ sim }) {
+const SimulatorView = memo(function SimulatorView({ isActive = true }) {
+  const sim = useSimulator(isActive);
+
   return (
-    <div className="lg:h-[840px] flex flex-col lg:flex-row gap-5">
-      {/* Panel lateral izquierdo: controles (ancho fijo estandarizado 360px a 380px) */}
-      <div className="w-full lg:w-[370px] xl:w-[380px] shrink-0 h-full">
+    <div className="h-[calc(100vh-80px)] w-full overflow-hidden p-4 grid grid-cols-12 gap-4">
+      {/* COLUMNA 1: Panel de Control (col-span-3 en escritorio) con scroll interno */}
+      <div className="col-span-12 lg:col-span-3 h-full max-h-full min-h-0 overflow-y-auto">
         <ControlsPanel
           expression={sim.expression}
           setExpression={sim.setExpression}
@@ -52,20 +59,28 @@ const SimulatorView = memo(function SimulatorView({ sim }) {
           setOpacity={sim.setOpacity}
           parserStatus={sim.fParsed}
           gStatus={sim.gParsed}
+          activeTab={sim.panelTab}
+          setActiveTab={sim.setPanelTab}
+          preset={sim.preset}
+          setPreset={sim.setPreset}
+          cutAnglePref={sim.cutAnglePref}
+          setCutAnglePref={sim.setCutAnglePref}
+          onAxisDragChange={sim.setIsAdjustingAxis}
+          onResetDefaults={sim.resetSimulatorState}
         />
       </div>
 
-      {/* Área derecha: 2D arriba · 3D + fórmulas abajo */}
-      <main className="flex-1 min-w-0 flex flex-col gap-5 h-full">
-        <div className="h-[300px] lg:h-[42%] min-h-[250px]">
+      {/* COLUMNA CENTRAL: Visores 2D y 3D apilados verticalmente (h-1/2 cada uno) */}
+      <main className="col-span-12 lg:col-span-5 xl:col-span-6 h-full max-h-full min-h-0 flex flex-col gap-4 overflow-hidden">
+        <div className="h-1/2 min-h-0 w-full overflow-hidden">
           <Canvas2D
             f={sim.f}
             g={sim.g}
             hasG={sim.useG && sim.gParsed.isValid}
             a={sim.a}
             b={sim.b}
-            axis={sim.axis}
-            axisOffset={sim.axisOffset}
+            axis={sim.deferredAxis}
+            axisOffset={sim.deferredAxisOffset}
             element={sim.element}
             showElement={sim.showElement}
             showRiemann={sim.showRiemann}
@@ -76,39 +91,42 @@ const SimulatorView = memo(function SimulatorView({ sim }) {
           />
         </div>
 
-        <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-12 gap-5">
-          <div className="xl:col-span-7 h-[380px] lg:h-full min-h-[300px]">
-            <Canvas3D
-              f={sim.f}
-              g={sim.g}
-              a={sim.a}
-              b={sim.b}
-              axis={sim.axis}
-              axisOffset={sim.axisOffset}
-              angleDeg={sim.angleDeg}
-              slicesCount={sim.slicesCount}
-              element={sim.element}
-              showElement={sim.showElement}
-              showRiemann={sim.showRiemann}
-              riemannMode={sim.riemannMode}
-              riemannSlices={sim.riemannSlices}
-              wireframe={sim.wireframe}
-              opacity={sim.opacity}
-            />
-          </div>
-
-          <div className="xl:col-span-5 h-full min-h-[300px]">
-            <IntegralLatex
-              steps={sim.integralData.steps}
-              hasG={sim.useG}
-              fullVolume={sim.integralData.fullVolume}
-              currentVolume={sim.currentVolume}
-              angleFraction={sim.angleFraction}
-              warning={sim.integralData.warning}
-            />
-          </div>
+        <div className="h-1/2 min-h-0 w-full overflow-hidden">
+          <Canvas3D
+            f={sim.f}
+            g={sim.g}
+            a={sim.a}
+            b={sim.b}
+            axis={sim.deferredAxis}
+            axisOffset={sim.deferredAxisOffset}
+            angleDeg={sim.angleDeg}
+            slicesCount={sim.slicesCount}
+            element={sim.element}
+            showElement={sim.showElement}
+            showRiemann={sim.showRiemann}
+            riemannMode={sim.riemannMode}
+            riemannSlices={sim.riemannSlices}
+            wireframe={sim.wireframe}
+            opacity={sim.opacity}
+            cameraStateRef={sim.cameraStateRef}
+            cameraResetNonce={sim.cameraResetNonce}
+            isVisible={isActive}
+            isDraftLod={sim.isAdjustingAxis}
+          />
         </div>
       </main>
+
+      {/* COLUMNA DERECHA: Panel de Fórmulas y Paso a Paso con scroll interno */}
+      <aside className="col-span-12 lg:col-span-4 xl:col-span-3 h-full max-h-full min-h-0 overflow-y-auto">
+        <IntegralLatex
+          steps={sim.integralData.steps}
+          hasG={sim.useG}
+          fullVolume={sim.integralData.fullVolume}
+          currentVolume={sim.currentVolume}
+          angleFraction={sim.angleFraction}
+          warning={sim.integralData.warning}
+        />
+      </aside>
     </div>
   );
 });

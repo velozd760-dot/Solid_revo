@@ -13,19 +13,26 @@ import { AnimatePresence, motion } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import { Toaster, toast } from 'sonner';
 import {
+  AlertTriangle,
   CheckCircle2,
+  Clock,
   Flame,
   Layers,
+  Loader2,
   Maximize2,
   Minimize2,
   MousePointerClick,
+  RefreshCw,
   RotateCcw,
+  Send,
   Sparkles,
   Swords,
   Trophy,
+  UserCheck,
 } from 'lucide-react';
 import KatexBlock from './KatexBlock';
 import { GLASS_CLEAR, GLASS_CLEAR_INNER } from './GlassCard';
+import { submitChallengeGrade } from '../services/gradeSubmissionService';
 
 /* ==========================================================================
    ILUSTRACIONES SVG GENERADAS POR CÓDIGO ("Gráfica 2D" y "Sólido 3D")
@@ -245,6 +252,47 @@ const CATEGORY_STYLES = {
   'Fórmula Integral': 'bg-indigo-50 text-indigo-700 border-indigo-200',
   'Sólido 3D': 'bg-amber-50 text-amber-800 border-amber-300',
 };
+
+const TOTAL_CARDS = INITIAL_CARDS.length;
+const MAX_SCORE = 100;
+const CHALLENGE_TOPIC = 'Duelo de Cartas: Sólidos de Revolución';
+const STUDENT_PROFILE_KEY = 'solid_revo_challenge_student';
+
+function loadSavedStudentProfile() {
+  try {
+    if (typeof window === 'undefined' || !window.sessionStorage) {
+      return { studentName: '', studentId: '' };
+    }
+    const raw = window.sessionStorage.getItem(STUDENT_PROFILE_KEY);
+    if (!raw) return { studentName: '', studentId: '' };
+    const parsed = JSON.parse(raw);
+    return {
+      studentName: typeof parsed?.studentName === 'string' ? parsed.studentName : '',
+      studentId: typeof parsed?.studentId === 'string' ? parsed.studentId : '',
+    };
+  } catch {
+    return { studentName: '', studentId: '' };
+  }
+}
+
+function saveStudentProfile(studentName, studentId) {
+  try {
+    if (typeof window === 'undefined' || !window.sessionStorage) return;
+    window.sessionStorage.setItem(
+      STUDENT_PROFILE_KEY,
+      JSON.stringify({ studentName, studentId })
+    );
+  } catch {
+    // Fallback silencioso si sessionStorage está restringido
+  }
+}
+
+function formatElapsedTime(totalSeconds) {
+  const safe = Math.max(0, Math.round(Number(totalSeconds) || 0));
+  const mins = Math.floor(safe / 60);
+  const secs = safe % 60;
+  return mins > 0 ? `${mins}m ${String(secs).padStart(2, '0')}s` : `${secs}s`;
+}
 
 function shuffleCards(list) {
   const arr = [...list];
@@ -530,6 +578,10 @@ const SolutionDropZone = memo(function SolutionDropZone({ group, placedCards, is
 const CardDuel = memo(function CardDuel({ onNavigate }) {
   const containerRef = useRef(null);
   const confettiCanvasRef = useRef(null);
+  const roundStartMsRef = useRef(Date.now());
+  const submissionCtrlRef = useRef(null);
+  const activeAttemptIdRef = useRef(null);
+  const isMountedRef = useRef(true);
 
   const [deck, setDeck] = useState(() => shuffleCards(INITIAL_CARDS));
   const [placedByGroup, setPlacedByGroup] = useState(() => ({}));
@@ -540,6 +592,24 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
   const [shakingZone, setShakingZone] = useState(null);
   const [shakingCardId, setShakingCardId] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Estado aislado de registro y sincronización de calificaciones
+  const [initialProfile] = useState(() => loadSavedStudentProfile());
+  const [studentName, setStudentName] = useState(initialProfile.studentName);
+  const [studentId, setStudentId] = useState(initialProfile.studentId);
+  const [completionSnapshot, setCompletionSnapshot] = useState(null);
+  const [syncStatus, setSyncStatus] = useState('idle'); // 'idle' | 'submitting' | 'success' | 'error'
+  const [syncMessage, setSyncMessage] = useState('');
+  const [formError, setFormError] = useState('');
+  const [submittedRecord, setSubmittedRecord] = useState(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      submissionCtrlRef.current?.abort();
+    };
+  }, []);
 
   // Sincronización con Fullscreen API
   useEffect(() => {
@@ -592,6 +662,32 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
     () => availableCards.find((c) => c.id === selectedCardId) || null,
     [availableCards, selectedCardId]
   );
+
+  // Congela el puntaje, intentos y duración exacta en cuanto se completan los 4 desafíos
+  useEffect(() => {
+    if (matchedPairsCount === CHALLENGE_GROUPS.length && !completionSnapshot) {
+      const elapsedSec = Math.max(
+        1,
+        Math.round((Date.now() - roundStartMsRef.current) / 1000)
+      );
+      const safeAttempts = Math.max(TOTAL_CARDS, attempts);
+      const mistakes = Math.max(0, safeAttempts - TOTAL_CARDS);
+      const score = Math.round((TOTAL_CARDS / safeAttempts) * MAX_SCORE);
+      const percentage = Number(((score / MAX_SCORE) * 100).toFixed(1));
+      const attemptId = `duel-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+      activeAttemptIdRef.current = attemptId;
+      setCompletionSnapshot({
+        attemptId,
+        attempts: safeAttempts,
+        mistakes,
+        score,
+        maxScore: MAX_SCORE,
+        percentage,
+        timeElapsedSeconds: elapsedSec,
+      });
+    }
+  }, [attempts, completionSnapshot, matchedPairsCount]);
 
   const fireVictoryCelebration = useCallback((finalAttempts) => {
     const colors = ['#2563eb', '#10b981', '#fbbf24', '#fde047', '#ffffff'];
@@ -721,6 +817,15 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
 
   const handleResetGame = useCallback((e) => {
     e?.stopPropagation();
+    submissionCtrlRef.current?.abort();
+    submissionCtrlRef.current = null;
+    activeAttemptIdRef.current = null;
+    roundStartMsRef.current = Date.now();
+    setCompletionSnapshot(null);
+    setSyncStatus('idle');
+    setSyncMessage('');
+    setFormError('');
+    setSubmittedRecord(null);
     setPlacedByGroup({});
     setAttempts(0);
     setActiveCard(null);
@@ -733,14 +838,112 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
     });
   }, []);
 
+  const handleSubmitGrade = useCallback(
+    async (e) => {
+      e?.preventDefault();
+      e?.stopPropagation();
+
+      if (syncStatus === 'submitting' || syncStatus === 'success') return;
+
+      const cleanName = studentName.trim();
+      const cleanId = studentId.trim();
+      if (cleanName.length < 2) {
+        setFormError('Ingresa el nombre completo del estudiante (mínimo 2 caracteres).');
+        return;
+      }
+
+      saveStudentProfile(cleanName, cleanId);
+
+      const snapshot = completionSnapshot ?? {
+        attemptId:
+          activeAttemptIdRef.current ||
+          `duel-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        attempts: Math.max(TOTAL_CARDS, attempts),
+        mistakes: Math.max(0, attempts - TOTAL_CARDS),
+        score: Math.round((TOTAL_CARDS / Math.max(TOTAL_CARDS, attempts)) * MAX_SCORE),
+        maxScore: MAX_SCORE,
+        percentage: Number(
+          ((TOTAL_CARDS / Math.max(TOTAL_CARDS, attempts)) * 100).toFixed(1)
+        ),
+        timeElapsedSeconds: Math.max(
+          1,
+          Math.round((Date.now() - roundStartMsRef.current) / 1000)
+        ),
+      };
+
+      activeAttemptIdRef.current = snapshot.attemptId;
+      submissionCtrlRef.current?.abort();
+      const controller = new AbortController();
+      submissionCtrlRef.current = controller;
+
+      setFormError('');
+      setSyncMessage('');
+      setSyncStatus('submitting');
+
+      const result = await submitChallengeGrade(
+        {
+          studentName: cleanName,
+          studentId: cleanId,
+          score: snapshot.score,
+          maxScore: snapshot.maxScore,
+          timeElapsedSeconds: snapshot.timeElapsedSeconds,
+          topic: CHALLENGE_TOPIC,
+          details: `4/4 desafíos completados (Esfera, Cono, Trompeta Parabólica, Arandela) · ${TOTAL_CARDS}/${TOTAL_CARDS} cartas en ${snapshot.attempts} intentos (${snapshot.mistakes === 1 ? '1 error' : `${snapshot.mistakes} errores`})`,
+        },
+        {
+          signal: controller.signal,
+          submissionId: snapshot.attemptId,
+        }
+      );
+
+      if (
+        !isMountedRef.current ||
+        activeAttemptIdRef.current !== snapshot.attemptId ||
+        result.status === 'aborted'
+      ) {
+        return;
+      }
+
+      if (result.ok) {
+        setSyncStatus('success');
+        setSyncMessage('');
+        setSubmittedRecord({
+          studentName: cleanName,
+          studentId: cleanId || 'N/A',
+        });
+        toast.success('Calificación registrada en el sistema', { duration: 3500 });
+      } else {
+        setSyncStatus('error');
+        setSyncMessage(
+          result.error ||
+            'No se pudo conectar con Google Sheets. Tu resultado sigue guardado localmente para reintentar.'
+        );
+        toast.error('Error de conexión: reintentar', {
+          description: result.error,
+          duration: 4000,
+        });
+      }
+    },
+    [attempts, completionSnapshot, studentId, studentName, syncStatus]
+  );
+
+  const displayAttempts = completionSnapshot?.attempts ?? attempts;
+  const displayScore =
+    completionSnapshot?.score ??
+    Math.round((TOTAL_CARDS / Math.max(TOTAL_CARDS, attempts)) * MAX_SCORE);
+  const displayPercentage =
+    completionSnapshot?.percentage ??
+    Number(((displayScore / MAX_SCORE) * 100).toFixed(1));
+  const displayElapsedSec = completionSnapshot?.timeElapsedSeconds ?? 1;
+
   return (
     <div
       ref={containerRef}
       onClick={handleBackgroundClick}
-      className={`w-full h-[100dvh] p-4 flex flex-col justify-between gap-3 overflow-hidden relative ${
+      className={`w-full p-4 flex flex-col justify-between gap-3 overflow-hidden relative ${
         isFullscreen
-          ? 'max-w-none bg-gradient-to-br from-slate-50 via-slate-100 to-blue-50/60'
-          : 'max-w-7xl mx-auto rounded-3xl'
+          ? 'h-[100dvh] max-w-none bg-gradient-to-br from-slate-50 via-slate-100 to-blue-50/60'
+          : 'h-[calc(100vh-80px)] max-w-7xl mx-auto rounded-3xl'
       }`}
     >
       {/* Lienzo de confeti compatible con modo Pantalla Completa */}
@@ -904,20 +1107,185 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="flex-1 min-h-0 rounded-2xl border border-emerald-300 bg-gradient-to-br from-emerald-50/70 via-white to-amber-50/70 p-6 flex flex-col items-center justify-center text-center gap-3 transform-gpu will-change-transform"
+                transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+                onClick={(e) => e.stopPropagation()}
+                className="flex-1 min-h-0 overflow-y-auto rounded-2xl border border-emerald-300 bg-gradient-to-br from-emerald-50/70 via-white to-amber-50/70 p-4 sm:p-5 flex flex-col items-center justify-between gap-3 transform-gpu will-change-transform"
               >
-                <Trophy className="w-12 h-12 text-amber-500 mx-auto" />
-                <h4 className="text-lg font-extrabold text-slate-900">
-                  ¡4 de 4 desafíos resueltos con éxito!
-                </h4>
-                <p className="text-xs text-slate-600 max-w-md mx-auto tabular-nums">
-                  Colocaste las 8 cartas correctamente en <b>{attempts}</b> intentos.
-                </p>
-                <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+                <div className="w-full text-center space-y-2 shrink-0">
+                  <div className="inline-flex items-center justify-center w-11 h-11 rounded-2xl bg-amber-100 border border-amber-300 text-amber-600 shadow-xs">
+                    <Trophy className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-base sm:text-lg font-extrabold text-slate-900 leading-tight">
+                      ¡4 de 4 desafíos resueltos con éxito!
+                    </h4>
+                    <p className="text-xs text-slate-600 max-w-md mx-auto mt-0.5 tabular-nums">
+                      Colocaste las 8 cartas correctamente en <b>{displayAttempts}</b> intentos.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-center gap-2 pt-0.5">
+                    <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg bg-white/90 border border-slate-200 text-slate-800 shadow-2xs tabular-nums">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                      Puntaje:{' '}
+                      <b className="text-blue-700">
+                        {displayScore}/{MAX_SCORE}
+                      </b>{' '}
+                      ({displayPercentage}%)
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg bg-white/90 border border-slate-200 text-slate-700 shadow-2xs tabular-nums">
+                      <Clock className="w-3.5 h-3.5 text-blue-600" />
+                      Tiempo: <b>{formatElapsedTime(displayElapsedSec)}</b>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Formulario no intrusivo + Indicador de estado de sincronización */}
+                <div className="w-full max-w-md bg-white/90 backdrop-blur-sm border border-slate-200/90 rounded-2xl p-3.5 shadow-sm space-y-2.5 text-left shrink-0">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      <UserCheck className="w-3.5 h-3.5 text-blue-600" />
+                      Registro de Calificación
+                    </span>
+
+                    {syncStatus === 'submitting' && (
+                      <span
+                        role="status"
+                        aria-live="polite"
+                        className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200"
+                      >
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Guardando calificación...
+                      </span>
+                    )}
+                    {syncStatus === 'success' && (
+                      <span
+                        role="status"
+                        aria-live="polite"
+                        className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-300"
+                      >
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        Calificación registrada en el sistema
+                      </span>
+                    )}
+                    {syncStatus === 'error' && (
+                      <span
+                        role="alert"
+                        className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-300"
+                      >
+                        <AlertTriangle className="w-3 h-3 text-rose-600" />
+                        Error de conexión: reintentar
+                      </span>
+                    )}
+                  </div>
+
+                  {syncStatus === 'success' ? (
+                    <div className="rounded-xl bg-emerald-50/75 border border-emerald-200 px-3 py-2.5 text-xs text-emerald-900 space-y-1">
+                      <p className="font-semibold flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        Calificación registrada en el sistema
+                      </p>
+                      <p className="text-[11px] text-emerald-800/90 tabular-nums">
+                        Estudiante: <b>{submittedRecord?.studentName}</b>
+                        {submittedRecord?.studentId && submittedRecord.studentId !== 'N/A'
+                          ? ` (${submittedRecord.studentId})`
+                          : ''}{' '}
+                        · {displayScore}/{MAX_SCORE} pts ({formatElapsedTime(displayElapsedSec)})
+                      </p>
+                    </div>
+                  ) : (
+                    <form onSubmit={handleSubmitGrade} className="space-y-2.5" noValidate>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <label
+                            htmlFor="challenge-student-name"
+                            className="block text-[11px] font-semibold text-slate-600 mb-1"
+                          >
+                            Nombre completo <span className="text-rose-500">*</span>
+                          </label>
+                          <input
+                            id="challenge-student-name"
+                            type="text"
+                            required
+                            disabled={syncStatus === 'submitting'}
+                            value={studentName}
+                            onChange={(e) => {
+                              setStudentName(e.target.value);
+                              if (formError) setFormError('');
+                            }}
+                            placeholder="Ej. Ana María López"
+                            className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:border-blue-500 focus:ring-blue-500/20 disabled:bg-slate-50 disabled:text-slate-400 transition"
+                          />
+                        </div>
+
+                        <div>
+                          <label
+                            htmlFor="challenge-student-id"
+                            className="block text-[11px] font-semibold text-slate-600 mb-1"
+                          >
+                            Código / ID{' '}
+                            <span className="text-slate-400 font-normal">(opcional)</span>
+                          </label>
+                          <input
+                            id="challenge-student-id"
+                            type="text"
+                            disabled={syncStatus === 'submitting'}
+                            value={studentId}
+                            onChange={(e) => setStudentId(e.target.value)}
+                            placeholder="Ej. 20241045"
+                            className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:border-blue-500 focus:ring-blue-500/20 disabled:bg-slate-50 disabled:text-slate-400 transition"
+                          />
+                        </div>
+                      </div>
+
+                      {formError && (
+                        <p className="text-[11px] font-medium text-rose-600 flex items-center gap-1">
+                          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                          {formError}
+                        </p>
+                      )}
+
+                      {syncStatus === 'error' && syncMessage && (
+                        <p className="text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5 leading-snug">
+                          {syncMessage}
+                        </p>
+                      )}
+
+                      <button
+                        type="submit"
+                        disabled={syncStatus === 'submitting'}
+                        className={`w-full py-2 px-3.5 rounded-xl font-bold text-xs shadow-sm flex items-center justify-center gap-2 transition-all duration-150 active:scale-[0.98] transform-gpu cursor-pointer disabled:opacity-65 disabled:cursor-not-allowed ${
+                          syncStatus === 'error'
+                            ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                            : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                        }`}
+                      >
+                        {syncStatus === 'submitting' ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Guardando calificación...
+                          </>
+                        ) : syncStatus === 'error' ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            Reintentar envío
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-3.5 h-3.5" />
+                            Registrar calificación
+                          </>
+                        )}
+                      </button>
+                    </form>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center justify-center gap-2.5 shrink-0">
                   <button
                     type="button"
                     onClick={handleResetGame}
-                    className="px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-900 font-bold text-xs shadow-sm transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer"
+                    className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-900 font-bold text-xs shadow-sm transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer"
                   >
                     Reiniciar partida
                   </button>
@@ -931,7 +1299,7 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
                         }
                         onNavigate('simulator');
                       }}
-                      className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer"
+                      className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer"
                     >
                       Probar en el Simulador 3D
                     </button>
