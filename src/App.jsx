@@ -1,10 +1,12 @@
-import React, { memo, useCallback, useState } from 'react';
+import React, { memo, useCallback, useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowRight,
   BookOpen,
   Box,
   Home,
+  Maximize,
+  Minimize,
   Trophy,
 } from 'lucide-react';
 import MathBackground from './components/MathBackground';
@@ -26,7 +28,7 @@ const NAV_TABS = [
     id: 'simulator',
     step: 'PASO 02 · LABORATORIO',
     label: 'Simulador',
-    subtitle: 'Cockpit 2D/3D interactivo y cálculo paso a paso',
+    subtitle: 'Gráfica interactiva 2D/3D y cálculo paso a paso',
     icon: Box,
     primary: false,
   },
@@ -406,6 +408,30 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('landing');
   // Contador de sesión del Simulador: garantiza remontaje limpio desde DEFAULT_SIMULATOR_STATE al volver a entrar
   const [simulatorSession, setSimulatorSession] = useState(0);
+  // Estado global de Pantalla Completa sincronizado con la Fullscreen API nativa
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch {
+      // Fallo silencioso si el navegador restringe el modo pantalla completa
+    }
+  }, []);
 
   const handleNavigate = useCallback(
     (tab) => {
@@ -432,9 +458,7 @@ export default function App() {
   return (
     <div
       translate="no"
-      className={`notranslate w-full flex flex-col text-slate-800 font-sans relative ${
-        isViewportLocked ? 'h-screen overflow-hidden' : 'min-h-screen overflow-x-hidden'
-      }`}
+      className="notranslate w-full h-screen flex flex-col overflow-hidden text-slate-800 font-sans relative"
     >
       {/* Fondo claro interactivo en la zona de contenido */}
       <MathBackground />
@@ -442,7 +466,7 @@ export default function App() {
       {/* =====================================================================
           HEADER FIJO Y COMPACTO (80px = h-20) PARA TEORÍA, SIMULADOR Y DESAFÍOS
          ===================================================================== */}
-      <header className="sticky top-0 z-30 h-[80px] w-full shrink-0 bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4 border-b border-blue-500/40 shadow-md">
+      <header className="flex-none z-50 h-[80px] w-full bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4 border-b border-blue-500/40 shadow-md">
         {/* Identidad de marca y retorno al Hero de Inicio */}
         <div className="flex items-center gap-3 min-w-0">
           <button
@@ -467,51 +491,70 @@ export default function App() {
           </button>
         </div>
 
-        {/* Barra de Navegación Compacta */}
-        <nav
-          aria-label="Navegación principal"
-          role="tablist"
-          className="bg-blue-950/35 backdrop-blur-md border border-white/25 p-1 rounded-full inline-flex items-center gap-1.5 shadow-inner shrink-0"
-        >
-          <button
-            type="button"
-            onClick={() => handleNavigate('landing')}
-            className="text-white/90 hover:text-white hover:bg-white/15 px-3.5 py-2 rounded-full transition-all duration-150 active:scale-[0.97] transform-gpu flex items-center gap-1.5 cursor-pointer text-xs sm:text-sm font-medium"
-            title="Ir al Inicio"
+        {/* Barra de Navegación Compacta + Botón Global de Pantalla Completa */}
+        <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+          <nav
+            aria-label="Navegación principal"
+            role="tablist"
+            className="bg-blue-950/35 backdrop-blur-md border border-white/25 p-1 rounded-full inline-flex items-center gap-1.5 shadow-inner shrink-0"
           >
-            <Home className="w-4 h-4 text-amber-300" />
-            <span className="hidden md:inline">Inicio</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => handleNavigate('landing')}
+              className="text-white/90 hover:text-white hover:bg-white/15 px-3.5 py-2 rounded-full transition-all duration-150 active:scale-[0.97] transform-gpu flex items-center gap-1.5 cursor-pointer text-xs sm:text-sm font-medium"
+              title="Ir al Inicio"
+            >
+              <Home className="w-4 h-4 text-amber-300" />
+              <span className="hidden md:inline">Inicio</span>
+            </button>
 
-          {NAV_TABS.map(({ id, label, icon: Icon }) => {
-            const isActive = activeTab === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => handleNavigate(id)}
-                className={
-                  isActive
-                    ? 'bg-amber-400 text-slate-900 font-bold shadow-md shadow-amber-500/30 rounded-full px-4 sm:px-5 py-2 flex items-center gap-2 cursor-pointer transition-all duration-150 active:scale-[0.97] transform-gpu text-xs sm:text-sm'
-                    : 'text-white/90 hover:text-white hover:bg-white/15 px-4 sm:px-5 py-2 rounded-full transition-all duration-150 active:scale-[0.97] transform-gpu flex items-center gap-2 cursor-pointer font-medium text-xs sm:text-sm'
-                }
-              >
-                <Icon className="w-4 h-4" />
-                <span>{label}</span>
-              </button>
-            );
-          })}
-        </nav>
+            {NAV_TABS.map(({ id, label, icon: Icon }) => {
+              const isActive = activeTab === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => handleNavigate(id)}
+                  className={
+                    isActive
+                      ? 'bg-amber-400 text-slate-900 font-bold shadow-md shadow-amber-500/30 rounded-full px-4 sm:px-5 py-2 flex items-center gap-2 cursor-pointer transition-all duration-150 active:scale-[0.97] transform-gpu text-xs sm:text-sm'
+                      : 'text-white/90 hover:text-white hover:bg-white/15 px-4 sm:px-5 py-2 rounded-full transition-all duration-150 active:scale-[0.97] transform-gpu flex items-center gap-2 cursor-pointer font-medium text-xs sm:text-sm'
+                  }
+                >
+                  <Icon className="w-4 h-4" />
+                  <span>{label}</span>
+                </button>
+              );
+            })}
+          </nav>
+
+          {(activeTab === 'theory' || activeTab === 'simulator' || activeTab === 'challenges') && (
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              title={isFullscreen ? 'Salir de pantalla completa (Esc)' : 'Pantalla completa'}
+              aria-label={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+              aria-pressed={isFullscreen}
+              className="p-2.5 rounded-full bg-blue-950/35 hover:bg-white/10 border border-white/25 text-white transition-colors duration-150 active:scale-[0.97] transform-gpu flex items-center justify-center cursor-pointer shadow-inner shrink-0"
+            >
+              {isFullscreen ? (
+                <Minimize className="w-4 h-4 text-amber-300" />
+              ) : (
+                <Maximize className="w-4 h-4 text-white" />
+              )}
+            </button>
+          )}
+        </div>
       </header>
 
       {/* =====================================================================
           ZONA DE CONTENIDO PRINCIPAL (100vh Zero-Scroll en Simulador y Desafíos)
          ===================================================================== */}
       <section
-        className={`flex-1 w-full bg-blue-50/25 relative z-10 ${
-          isViewportLocked ? 'h-[calc(100vh-80px)] overflow-hidden' : 'py-6 pb-16'
+        className={`flex-1 min-h-0 w-full bg-blue-50/25 relative z-10 ${
+          isViewportLocked ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden py-6 pb-16'
         }`}
       >
         <AnimatePresence mode="wait" initial={false}>

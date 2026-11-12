@@ -19,8 +19,6 @@ import {
   Flame,
   Layers,
   Loader2,
-  Maximize2,
-  Minimize2,
   MousePointerClick,
   RefreshCw,
   RotateCcw,
@@ -576,7 +574,6 @@ const SolutionDropZone = memo(function SolutionDropZone({ group, placedCards, is
    ========================================================================== */
 
 const CardDuel = memo(function CardDuel({ onNavigate }) {
-  const containerRef = useRef(null);
   const confettiCanvasRef = useRef(null);
   const roundStartMsRef = useRef(Date.now());
   const submissionCtrlRef = useRef(null);
@@ -591,7 +588,6 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
   const [dragTilt, setDragTilt] = useState(2);
   const [shakingZone, setShakingZone] = useState(null);
   const [shakingCardId, setShakingCardId] = useState(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Estado aislado de registro y sincronización de calificaciones
   const [initialProfile] = useState(() => loadSavedStudentProfile());
@@ -609,30 +605,6 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
       isMountedRef.current = false;
       submissionCtrlRef.current?.abort();
     };
-  }, []);
-
-  // Sincronización con Fullscreen API
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(Boolean(document.fullscreenElement));
-    };
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-    };
-  }, []);
-
-  const handleToggleFullscreen = useCallback(async (e) => {
-    e.stopPropagation();
-    try {
-      if (!document.fullscreenElement) {
-        await containerRef.current?.requestFullscreen();
-      } else {
-        await document.exitFullscreen();
-      }
-    } catch {
-      toast.error('No se pudo alternar el modo de pantalla completa.');
-    }
   }, []);
 
   const sensors = useSensors(
@@ -938,15 +910,10 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
 
   return (
     <div
-      ref={containerRef}
       onClick={handleBackgroundClick}
-      className={`w-full p-4 flex flex-col justify-between gap-3 overflow-hidden relative ${
-        isFullscreen
-          ? 'h-[100dvh] max-w-none bg-gradient-to-br from-slate-50 via-slate-100 to-blue-50/60'
-          : 'h-[calc(100vh-80px)] max-w-7xl mx-auto rounded-3xl'
-      }`}
+      className="w-full h-[calc(100vh-80px)] max-w-7xl mx-auto p-4 flex flex-col justify-between gap-3 overflow-hidden relative rounded-3xl"
     >
-      {/* Lienzo de confeti compatible con modo Pantalla Completa */}
+      {/* Lienzo de confeti */}
       <canvas
         ref={confettiCanvasRef}
         className="pointer-events-none fixed inset-0 w-full h-full z-50"
@@ -954,7 +921,7 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
       <Toaster position="bottom-right" richColors closeButton />
 
       {/* =====================================================================
-          1. BARRA SUPERIOR COMPACTA CON CONTROLES Y MODO PANTALLA COMPLETA
+          1. BARRA SUPERIOR COMPACTA CON CONTROLES
          ===================================================================== */}
       <header
         className={`${GLASS_CLEAR} shrink-0 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3`}
@@ -1004,23 +971,6 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
           >
             <RotateCcw className="w-3.5 h-3.5" />
             Reiniciar partida
-          </button>
-
-          <button
-            type="button"
-            onClick={handleToggleFullscreen}
-            title={isFullscreen ? 'Salir de pantalla completa (Esc)' : 'Modo Pantalla Completa'}
-            aria-label={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla Completa'}
-            className="bg-white/80 border border-slate-200 hover:bg-slate-100 rounded-lg p-2 transition-all active:scale-95 text-slate-700 flex items-center gap-1.5 text-xs font-semibold cursor-pointer shadow-xs"
-          >
-            {isFullscreen ? (
-              <Minimize2 className="w-4 h-4 text-blue-600" />
-            ) : (
-              <Maximize2 className="w-4 h-4 text-slate-700" />
-            )}
-            <span className="hidden sm:inline">
-              {isFullscreen ? 'Salir' : 'Pantalla Completa'}
-            </span>
           </button>
         </div>
       </header>
