@@ -92,7 +92,7 @@ function TheoryCard({ icon: Icon, badge, title, children, formula, note, diagram
       </div>
 
       {formula && (
-        <div className="mt-5 rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50/70 via-white to-amber-50/50 px-5 py-3.5 text-slate-800 text-lg group-hover:border-blue-300/80 transition-colors">
+        <div className="mt-5 rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50/70 via-white to-amber-50/50 px-3 sm:px-5 py-3 text-slate-800 text-base sm:text-lg group-hover:border-blue-300/80 transition-colors overflow-hidden">
           <KatexBlock tex={formula} />
         </div>
       )}
@@ -112,7 +112,7 @@ export default function TheoryView({ onNavigate }) {
       {/* Tarjeta superior de síntesis rápida */}
       <motion.section
         variants={item}
-        className={`${GLASS_CLEAR} p-6 md:p-7 flex flex-col gap-5`}
+        className={`${GLASS_CLEAR} p-5 sm:p-6 md:p-7 flex flex-col gap-5`}
       >
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -121,7 +121,7 @@ export default function TheoryView({ onNavigate }) {
                 <Sparkles className="w-4 h-4 text-amber-500 fill-amber-400/30" />
                 Fundamentos teóricos · Del área al volumen
               </span>
-              <h2 className="mt-1.5 text-2xl font-bold tracking-tight text-slate-800">
+              <h2 className="mt-1.5 text-xl sm:text-2xl font-bold tracking-tight text-slate-800">
                 Resumen de métodos de integración
               </h2>
             </div>
@@ -134,23 +134,23 @@ export default function TheoryView({ onNavigate }) {
 
         {/* Píldoras de fórmulas clave */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
-          <div className={`${GLASS_CLEAR_INNER} px-4 py-3 flex items-center justify-between gap-2 hover:border-blue-300 transition-colors`}>
-            <span className="text-xs font-bold text-slate-700 flex items-center gap-2">
+          <div className={`${GLASS_CLEAR_INNER} min-w-0 px-4 py-3 flex items-center justify-between gap-3 hover:border-blue-300 transition-colors overflow-hidden`}>
+            <span className="text-xs font-bold text-slate-700 flex items-center gap-2 shrink-0">
               <span className="w-2 h-2 rounded-full bg-blue-600" /> Discos
             </span>
-            <KatexBlock display={false} tex={'V = \\pi \\int_a^b [f(x)]^2\\,dx'} className="text-sm text-slate-800" />
+            <KatexBlock display={false} scrollable tex={'V = \\pi \\int_a^b [f(x)]^2\\,dx'} className="text-sm text-slate-800 min-w-0" />
           </div>
-          <div className={`${GLASS_CLEAR_INNER} px-4 py-3 flex items-center justify-between gap-2 hover:border-amber-300 transition-colors`}>
-            <span className="text-xs font-bold text-slate-700 flex items-center gap-2">
+          <div className={`${GLASS_CLEAR_INNER} min-w-0 px-4 py-3 flex items-center justify-between gap-3 hover:border-amber-300 transition-colors overflow-hidden`}>
+            <span className="text-xs font-bold text-slate-700 flex items-center gap-2 shrink-0">
               <span className="w-2 h-2 rounded-full bg-amber-500" /> Arandelas
             </span>
-            <KatexBlock display={false} tex={'V = \\pi \\int_a^b (R^2 - r^2)\\,dx'} className="text-sm text-slate-800" />
+            <KatexBlock display={false} scrollable tex={'V = \\pi \\int_a^b (R^2 - r^2)\\,dx'} className="text-sm text-slate-800 min-w-0" />
           </div>
-          <div className={`${GLASS_CLEAR_INNER} px-4 py-3 flex items-center justify-between gap-2 hover:border-blue-300 transition-colors`}>
-            <span className="text-xs font-bold text-slate-700 flex items-center gap-2">
+          <div className={`${GLASS_CLEAR_INNER} min-w-0 px-4 py-3 flex items-center justify-between gap-3 hover:border-blue-300 transition-colors overflow-hidden`}>
+            <span className="text-xs font-bold text-slate-700 flex items-center gap-2 shrink-0">
               <span className="w-2 h-2 rounded-full bg-indigo-500" /> Capas
             </span>
-            <KatexBlock display={false} tex={'V = 2\\pi \\int_a^b \\rho\\,h\\,dx'} className="text-sm text-slate-800" />
+            <KatexBlock display={false} scrollable tex={'V = 2\\pi \\int_a^b \\rho\\,h\\,dx'} className="text-sm text-slate-800 min-w-0" />
           </div>
         </div>
       </motion.section>

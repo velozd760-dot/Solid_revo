@@ -301,12 +301,12 @@ const SolidHeroEmblem = memo(function SolidHeroEmblem() {
  */
 const LandingView = memo(function LandingView({ onNavigate }) {
   return (
-    <div className="h-screen w-full overflow-hidden relative bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 select-none">
+    <div className="min-h-[100dvh] lg:h-screen w-full overflow-y-auto lg:overflow-hidden relative bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 select-none">
       {/* Fondo interactivo de constelaciones (Canvas 2D con brote de nodos al hacer clic) */}
       <ConstellationBackground />
 
-      {/* Contenedor principal Two-Column Hero a pantalla completa */}
-      <div className="h-screen w-full overflow-hidden relative flex flex-col lg:flex-row items-center justify-center lg:justify-between max-w-7xl mx-auto px-8 lg:px-14 z-10 gap-8">
+      {/* Contenedor principal Two-Column Hero */}
+      <div className="min-h-[100dvh] lg:h-screen w-full relative flex flex-col lg:flex-row items-center justify-center lg:justify-between max-w-7xl mx-auto px-5 sm:px-8 lg:px-14 py-8 lg:py-0 z-10 gap-6 lg:gap-8">
         {/* BLOQUE IZQUIERDO/CENTRAL: TÍTULO ARRIBA (UN POCO AL CENTRO) + SÓLIDO AMPLIADO DEBAJO */}
         <div className="lg:flex-1 flex flex-col items-center justify-center lg:pr-10 lg:-mt-6">
           <div className="flex flex-col items-center gap-5 sm:gap-6">
@@ -444,68 +444,71 @@ export default function App() {
     [activeTab]
   );
 
-  // Cuando el usuario está en el Inicio (LandingView), se muestra únicamente el Hero Zero-Scroll
+  // Cuando el usuario está en el Inicio (LandingView), se muestra únicamente el Hero
   if (activeTab === 'landing') {
     return (
-      <div translate="no" className="notranslate w-full h-screen overflow-hidden font-sans">
+      <div translate="no" className="notranslate w-full min-h-[100dvh] lg:h-screen overflow-y-auto lg:overflow-hidden font-sans">
         <LandingView onNavigate={handleNavigate} />
       </div>
     );
   }
 
-  const isViewportLocked = activeTab === 'simulator' || activeTab === 'challenges';
+  const isSimulator = activeTab === 'simulator';
+  const isChallenges = activeTab === 'challenges';
 
   return (
     <div
       translate="no"
-      className="notranslate w-full min-h-screen md:h-screen flex flex-col overflow-x-clip md:overflow-hidden text-slate-800 font-sans relative"
+      className="notranslate w-full min-h-[100dvh] md:h-screen flex flex-col overflow-x-clip md:overflow-hidden text-slate-800 font-sans relative"
     >
       {/* Fondo claro interactivo en la zona de contenido */}
       <MathBackground />
 
       {/* =====================================================================
-          HEADER FIJO Y COMPACTO (80px = h-20) PARA TEORÍA, SIMULADOR Y DESAFÍOS
+          HEADER FIJO Y COMPACTO (60px móvil / 76px escritorio)
          ===================================================================== */}
-      <header className="sticky top-0 md:static flex-none z-50 h-[80px] w-full bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4 border-b border-blue-500/40 shadow-md">
+      <header className="sticky top-0 lg:static flex-none z-50 h-[60px] lg:h-[76px] w-full bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 px-2 sm:px-6 lg:px-8 flex items-center justify-between gap-1.5 sm:gap-4 border-b border-blue-500/40 shadow-md">
         {/* Identidad de marca y retorno al Hero de Inicio */}
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           <button
             type="button"
             onClick={() => handleNavigate('landing')}
             title="Volver a la portada de Inicio"
-            className="flex items-center gap-3.5 text-left group cursor-pointer focus:outline-none shrink-0"
+            aria-label="Volver a la portada de Inicio"
+            className="min-h-[44px] min-w-[44px] max-w-full flex items-center justify-center sm:justify-start gap-2 sm:gap-3.5 text-left group cursor-pointer focus:outline-none min-w-0"
           >
             <img
               src="/icon.svg"
               alt="Logo Solid Revo"
-              className="w-12 h-12 sm:w-14 sm:h-14 object-contain filter drop-shadow-md transition-transform duration-200 group-hover:scale-105 shrink-0"
+              className="w-9 h-9 sm:w-11 sm:h-11 md:w-12 md:h-12 object-contain filter drop-shadow-md transition-transform duration-200 group-hover:scale-105 shrink-0"
             />
-            <div className="min-w-0">
-              <span className="block text-[10px] font-extrabold uppercase tracking-widest text-amber-400 leading-none mb-1">
+            <div className="min-w-0 hidden sm:block">
+              <span className="hidden lg:block text-[10px] font-extrabold uppercase tracking-widest text-amber-400 leading-none mb-1">
                 SIMULADOR DE
               </span>
-              <span className="block text-sm sm:text-base md:text-lg font-black uppercase text-white tracking-tight leading-none truncate">
+              <span className="block text-sm lg:text-lg font-black uppercase text-white tracking-tight leading-none truncate">
                 SÓLIDOS DE REVOLUCIÓN
               </span>
             </div>
           </button>
         </div>
 
-        {/* Barra de Navegación Compacta + Botón Global de Pantalla Completa */}
-        <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+        {/* Barra de Navegación Compacta (>= 44x44px táctil) + Pantalla Completa */}
+        <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
           <nav
             aria-label="Navegación principal"
             role="tablist"
-            className="bg-blue-950/35 backdrop-blur-md border border-white/25 p-1 rounded-full inline-flex items-center gap-1.5 shadow-inner shrink-0"
+            className="bg-blue-950/35 backdrop-blur-md border border-white/25 p-0.5 sm:p-1 rounded-full inline-flex items-center gap-0.5 sm:gap-1.5 shadow-inner shrink-0"
           >
             <button
               type="button"
               onClick={() => handleNavigate('landing')}
-              className="text-white/90 hover:text-white hover:bg-white/15 px-3.5 py-2 rounded-full transition-all duration-150 active:scale-[0.97] transform-gpu flex items-center gap-1.5 cursor-pointer text-xs sm:text-sm font-medium"
+              className="min-h-[44px] min-w-[44px] md:min-h-[38px] md:min-w-0 text-white/90 hover:text-white hover:bg-white/15 px-2 sm:px-3.5 py-1.5 rounded-full transition-all duration-150 active:scale-[0.97] transform-gpu flex items-center justify-center gap-1.5 cursor-pointer text-xs sm:text-sm font-medium"
               title="Ir al Inicio"
+              aria-label="Ir al Inicio"
             >
-              <Home className="w-4 h-4 text-amber-300" />
-              <span className="hidden md:inline">Inicio</span>
+              <Home className="w-4 h-4 text-amber-300 shrink-0" />
+              <span className="hidden lg:inline">Inicio</span>
             </button>
 
             {NAV_TABS.map(({ id, label, icon: Icon }) => {
@@ -516,15 +519,16 @@ export default function App() {
                   type="button"
                   role="tab"
                   aria-selected={isActive}
+                  aria-label={label}
                   onClick={() => handleNavigate(id)}
                   className={
                     isActive
-                      ? 'bg-amber-400 text-slate-900 font-bold shadow-md shadow-amber-500/30 rounded-full px-4 sm:px-5 py-2 flex items-center gap-2 cursor-pointer transition-all duration-150 active:scale-[0.97] transform-gpu text-xs sm:text-sm'
-                      : 'text-white/90 hover:text-white hover:bg-white/15 px-4 sm:px-5 py-2 rounded-full transition-all duration-150 active:scale-[0.97] transform-gpu flex items-center gap-2 cursor-pointer font-medium text-xs sm:text-sm'
+                      ? 'min-h-[44px] md:min-h-[38px] bg-amber-400 text-slate-900 font-bold shadow-md shadow-amber-500/30 rounded-full px-3 sm:px-5 py-1.5 flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer transition-all duration-150 active:scale-[0.97] transform-gpu text-xs sm:text-sm whitespace-nowrap'
+                      : 'min-h-[44px] min-w-[44px] md:min-h-[38px] md:min-w-0 text-white/90 hover:text-white hover:bg-white/15 px-2 sm:px-5 py-1.5 rounded-full transition-all duration-150 active:scale-[0.97] transform-gpu flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer font-medium text-xs sm:text-sm whitespace-nowrap'
                   }
                 >
-                  <Icon className="w-4 h-4" />
-                  <span>{label}</span>
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span className={isActive ? 'inline' : 'hidden sm:inline'}>{label}</span>
                 </button>
               );
             })}
@@ -537,7 +541,7 @@ export default function App() {
               title={isFullscreen ? 'Salir de pantalla completa (Esc)' : 'Pantalla completa'}
               aria-label={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
               aria-pressed={isFullscreen}
-              className="p-2.5 rounded-full bg-blue-950/35 hover:bg-white/10 border border-white/25 text-white transition-colors duration-150 active:scale-[0.97] transform-gpu flex items-center justify-center cursor-pointer shadow-inner shrink-0"
+              className="min-h-[44px] min-w-[44px] md:min-h-[38px] md:min-w-[38px] p-2 sm:p-2.5 rounded-full bg-blue-950/35 hover:bg-white/10 border border-white/25 text-white transition-colors duration-150 active:scale-[0.97] transform-gpu flex items-center justify-center cursor-pointer shadow-inner shrink-0"
             >
               {isFullscreen ? (
                 <Minimize className="w-4 h-4 text-amber-300" />
@@ -550,13 +554,15 @@ export default function App() {
       </header>
 
       {/* =====================================================================
-          ZONA DE CONTENIDO PRINCIPAL (100vh Zero-Scroll en Simulador y Desafíos en escritorio)
+          ZONA DE CONTENIDO PRINCIPAL
          ===================================================================== */}
       <section
         className={`flex-1 min-h-0 w-full bg-blue-50/25 relative z-10 ${
-          isViewportLocked
-            ? 'overflow-visible md:overflow-hidden'
-            : 'overflow-y-auto overflow-x-hidden py-6 pb-16'
+          isSimulator
+            ? 'overflow-hidden'
+            : isChallenges
+              ? 'overflow-y-auto lg:overflow-hidden'
+              : 'overflow-y-auto overflow-x-hidden py-5 sm:py-6 pb-16'
         }`}
       >
         <AnimatePresence mode="wait" initial={false}>
@@ -567,9 +573,11 @@ export default function App() {
             animate="animate"
             exit="exit"
             className={
-              isViewportLocked
-                ? 'min-h-full md:h-full w-full overflow-visible md:overflow-hidden'
-                : 'max-w-[1680px] mx-auto px-4 sm:px-6 lg:px-8'
+              isSimulator
+                ? 'h-full w-full overflow-hidden'
+                : isChallenges
+                  ? 'min-h-full lg:h-full w-full overflow-visible lg:overflow-hidden'
+                  : 'max-w-[1680px] mx-auto px-3.5 sm:px-6 lg:px-8'
             }
           >
             {activeTab === 'theory' && <TheoryView onNavigate={handleNavigate} />}

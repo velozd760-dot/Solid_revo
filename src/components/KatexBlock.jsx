@@ -3,12 +3,11 @@ import katex from 'katex';
 import { sanitizeLatexVariable } from '../math/expressionTools';
 
 /**
- * Renderiza LaTeX con KaTeX (memoizado con comparador estricto de expresión matemática
- * y protegido contra traductores automáticos del navegador).
- * El color se hereda del contenedor.
+ * Renderiza LaTeX con KaTeX (memoizado, protegido contra traducción automática
+ * y contenido en contenedores con scroll horizontal táctil para móviles).
  */
 const KatexBlock = memo(
-  function KatexBlock({ tex, math, display = true, className = '' }) {
+  function KatexBlock({ tex, math, display = true, scrollable = false, className = '' }) {
     const rawMath = tex ?? math ?? '';
 
     const html = useMemo(() => {
@@ -26,11 +25,26 @@ const KatexBlock = memo(
       }
     }, [rawMath, display]);
 
-    const Tag = display ? 'div' : 'span';
+    if (display) {
+      return (
+        <div
+          translate="no"
+          className={`notranslate katex-scroll-container w-full py-0.5 text-[13px] sm:text-sm ${className}`}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      );
+    }
+
+    const shouldScrollInline = scrollable || rawMath.length > 22;
+
     return (
-      <Tag
+      <span
         translate="no"
-        className={`notranslate ${display ? 'overflow-x-auto overflow-y-hidden' : ''} ${className}`}
+        className={`notranslate ${
+          shouldScrollInline
+            ? 'katex-scroll-container inline-block align-middle whitespace-nowrap'
+            : ''
+        } ${className}`}
         dangerouslySetInnerHTML={{ __html: html }}
       />
     );
@@ -38,6 +52,7 @@ const KatexBlock = memo(
   (prev, next) =>
     (prev.tex ?? prev.math) === (next.tex ?? next.math) &&
     prev.display === next.display &&
+    prev.scrollable === next.scrollable &&
     prev.className === next.className
 );
 

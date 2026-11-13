@@ -35,24 +35,30 @@ const PANEL_TABS = [
   { id: 'display', label: 'Vista', icon: Eye },
 ];
 
+// text-base en móviles previene el zoom automático de iOS Safari al enfocar inputs;
+// min-h-[44px] asegura área táctil accesible en celulares.
 const inputBase =
-  'w-full bg-white border rounded-lg px-3 py-2 text-sm font-mono text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition';
+  'w-full min-h-[44px] md:min-h-[38px] bg-white border rounded-xl md:rounded-lg px-3 py-2 text-base md:text-sm font-mono text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition';
 const inputOk = 'border-slate-200 focus:border-blue-500 focus:ring-blue-500/20';
 const inputBad = 'border-rose-300 focus:border-rose-500 focus:ring-rose-500/20';
 
 const Toggle = memo(function Toggle({ checked, onChange, title, subtitle }) {
   return (
-    <label className={`${GLASS_INNER} flex items-center justify-between gap-3 p-3 cursor-pointer hover:border-blue-300 hover:bg-blue-50/30 transition`}>
-      <div>
+    <label
+      className={`${GLASS_INNER} min-h-[52px] flex items-center justify-between gap-3 p-3 cursor-pointer hover:border-blue-300 hover:bg-blue-50/30 transition`}
+    >
+      <div className="min-w-0">
         <span className="text-xs font-semibold text-slate-800 block">{title}</span>
-        {subtitle && <span className="text-[11px] text-slate-500">{subtitle}</span>}
+        {subtitle && <span className="text-[11px] text-slate-500 block leading-snug">{subtitle}</span>}
       </div>
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="w-4 h-4 accent-blue-600 cursor-pointer shrink-0"
-      />
+      <span className="min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0 flex items-center justify-end shrink-0">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          className="w-5 h-5 md:w-4 md:h-4 accent-blue-600 cursor-pointer shrink-0"
+        />
+      </span>
     </label>
   );
 });
@@ -118,12 +124,13 @@ const ControlsPanel = memo(function ControlsPanel({
   setCutAnglePref: setCutAnglePrefProp,
   onAxisDragChange,
   onResetDefaults,
+  isBottomSheet = false,
+  onCloseSheet,
 }) {
   const [localTab, setLocalTab] = useState(DEFAULT_SIMULATOR_STATE.panelTab);
   const [localPreset, setLocalPreset] = useState(DEFAULT_SIMULATOR_STATE.preset);
   const [localCutAnglePref, setLocalCutAnglePref] = useState(DEFAULT_SIMULATOR_STATE.cutAnglePref);
 
-  // Estado local ligero a 60 FPS para botones de eje y slider de desplazamiento k/c
   const [isAxisPending, startAxisTransition] = useTransition();
   const [optimisticAxis, setOptimisticAxis] = useState(null);
   const [dragOffset, setDragOffset] = useState(null);
@@ -232,14 +239,12 @@ const ControlsPanel = memo(function ControlsPanel({
       const nextVal = Math.round(parseFloat(e.target.value) * 10) / 10;
       if (!Number.isFinite(nextVal)) return;
 
-      // Actualización inmediata a 60 FPS para el thumb y etiquetas visuales
       setDragOffset(nextVal);
       reportAxisDrag(true);
 
       pendingOffsetRef.current = nextVal;
       hasPendingOffsetRef.current = true;
 
-      // Emisión throttled a máximo 1 vez por requestAnimationFrame hacia el motor 3D/2D
       if (!rafRef.current) {
         rafRef.current = requestAnimationFrame(() => {
           rafRef.current = 0;
@@ -252,7 +257,6 @@ const ControlsPanel = memo(function ControlsPanel({
         });
       }
 
-      // Respaldo de estabilización a 150 ms tras inactividad (teclado o pausa prolongada)
       if (idleTimerRef.current !== null) clearTimeout(idleTimerRef.current);
       idleTimerRef.current = setTimeout(finalizeOffsetDrag, 150);
     },
@@ -339,21 +343,33 @@ const ControlsPanel = memo(function ControlsPanel({
     [setIsPlaying, setAngleDeg]
   );
 
+  const handleStartRevolutionAnimation = useCallback(() => {
+    startRevolutionAnimation?.();
+    if (isBottomSheet) {
+      onCloseSheet?.();
+    }
+  }, [startRevolutionAnimation, isBottomSheet, onCloseSheet]);
+
+  const containerClass = isBottomSheet
+    ? 'notranslate w-full flex flex-col text-slate-800 select-none bg-white'
+    : `${GLASS} notranslate w-full h-full shrink-0 flex flex-col overflow-hidden text-slate-800 select-none`;
+
   return (
-    <aside
-      translate="no"
-      className={`${GLASS} notranslate w-full h-full shrink-0 flex flex-col overflow-hidden text-slate-800 select-none`}
-    >
+    <aside translate="no" className={containerClass}>
       {/* Header */}
-      <div className="p-4 pb-3 border-b border-slate-200/80">
+      <div className="p-4 md:p-3.5 2xl:p-4 pb-3 border-b border-slate-200/80">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <div className="p-1.5 rounded-lg bg-blue-50 text-blue-600 border border-blue-200 shrink-0">
               <SlidersHorizontal className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <h1 className="font-bold text-sm text-slate-800 tracking-tight truncate">Panel de control</h1>
-              <p className="text-[11px] text-slate-500 truncate">Define la región, el eje y el giro</p>
+              <h1 className="font-bold text-sm text-slate-800 tracking-tight truncate">
+                Panel de control
+              </h1>
+              <p className="text-[11px] text-slate-500 truncate">
+                Define la región, el eje y el giro
+              </p>
             </div>
           </div>
 
@@ -362,43 +378,47 @@ const ControlsPanel = memo(function ControlsPanel({
               type="button"
               onClick={handleResetDefaults}
               title="Restablecer todos los controles y la cámara 3D a valores por defecto"
-              className="px-2 py-1 rounded-lg bg-white/90 hover:bg-blue-50 hover:border-blue-300 text-slate-600 hover:text-blue-700 border border-slate-200 text-[11px] font-medium shadow-xs flex items-center gap-1 transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer shrink-0"
+              className="min-h-[44px] md:min-h-[32px] px-3 md:px-2 py-2 md:py-1 rounded-xl md:rounded-lg bg-white/90 hover:bg-blue-50 hover:border-blue-300 text-slate-600 hover:text-blue-700 border border-slate-200 text-xs md:text-[11px] font-medium shadow-xs flex items-center gap-1.5 transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer shrink-0"
             >
-              <RotateCcw className="w-3 h-3 text-blue-600" />
+              <RotateCcw className="w-3.5 h-3.5 md:w-3 md:h-3 text-blue-600" />
               <span>Restablecer</span>
             </button>
           )}
         </div>
 
-        {/* Tab Navigation */}
-        <div className="grid grid-cols-3 gap-1 mt-3 p-1 bg-slate-100/80 rounded-xl border border-slate-200/80 text-[11px] xl:text-xs font-semibold">
+        {/* Tab Navigation (>= 44px touch height on mobile) */}
+        <div className="grid grid-cols-3 md:flex md:flex-wrap xl:flex-nowrap md:items-center gap-1.5 md:gap-1 mt-3 p-1 bg-slate-100/80 rounded-xl border border-slate-200/80 text-xs md:text-[10.5px] 2xl:text-xs font-semibold">
           {PANEL_TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               type="button"
               onClick={() => setActiveTab(id)}
-              className={`flex items-center justify-center gap-1 xl:gap-1.5 py-1.5 px-1 sm:px-1.5 rounded-lg transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer whitespace-nowrap min-w-0 ${
+              className={`min-h-[44px] md:min-h-[34px] md:flex-auto flex items-center justify-center gap-1 md:gap-1 2xl:gap-1.5 py-2 md:py-1.5 px-1.5 md:px-1 2xl:px-2 rounded-lg transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer whitespace-nowrap min-w-0 ${
                 activeTab === id
                   ? 'bg-blue-600 text-white font-semibold shadow-md shadow-blue-600/25'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-white/80'
               }`}
             >
-              <Icon className="w-3.5 h-3.5 shrink-0" />
-              <span className="whitespace-nowrap">{label}</span>
+              <Icon className="w-3.5 h-3.5 md:w-3 md:h-3 2xl:w-3.5 2xl:h-3.5 shrink-0" />
+              <span className="whitespace-nowrap truncate md:overflow-visible md:text-clip">{label}</span>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Scrollable Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-5 text-sm">
+      {/* Scrollable Content (con aislamiento de scroll para no mover el canvas) */}
+      <div
+        className={`p-4 space-y-5 text-sm ${
+          isBottomSheet ? '' : 'flex-1 overflow-y-auto overscroll-contain touch-pan-y'
+        }`}
+      >
         {/* Quick Presets */}
         <div>
           <label className="text-xs font-medium text-slate-600 mb-1.5 flex items-center gap-1">
             <Sparkles className="w-3.5 h-3.5 text-amber-500" /> Ejemplos didácticos
           </label>
           <select
-            className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 cursor-pointer"
+            className="w-full min-h-[44px] md:min-h-[38px] bg-white border border-slate-200 rounded-xl md:rounded-lg px-3 py-2 text-base md:text-xs text-slate-700 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 cursor-pointer"
             value={preset}
             onChange={handlePresetSelect}
           >
@@ -432,7 +452,9 @@ const ControlsPanel = memo(function ControlsPanel({
                 spellCheck={false}
                 className={`${inputBase} ${parserStatus.isValid ? inputOk : inputBad}`}
               />
-              {parserStatus.error && <p className="text-[11px] text-rose-600">{parserStatus.error}</p>}
+              {parserStatus.error && (
+                <p className="text-[11px] text-rose-600">{parserStatus.error}</p>
+              )}
             </div>
 
             {/* Region between two curves */}
@@ -479,7 +501,7 @@ const ControlsPanel = memo(function ControlsPanel({
                   value={aStr}
                   onChange={(e) => setAStr(e.target.value)}
                   spellCheck={false}
-                  className={`${inputBase} !py-1.5 !text-xs ${boundsStatus.aOk ? inputOk : inputBad}`}
+                  className={`${inputBase} md:!py-1.5 md:!text-xs ${boundsStatus.aOk ? inputOk : inputBad}`}
                 />
               </div>
               <div className="space-y-1">
@@ -489,10 +511,14 @@ const ControlsPanel = memo(function ControlsPanel({
                   value={bStr}
                   onChange={(e) => setBStr(e.target.value)}
                   spellCheck={false}
-                  className={`${inputBase} !py-1.5 !text-xs ${boundsStatus.bOk ? inputOk : inputBad}`}
+                  className={`${inputBase} md:!py-1.5 md:!text-xs ${boundsStatus.bOk ? inputOk : inputBad}`}
                 />
               </div>
-              <p className={`col-span-2 text-[11px] flex items-start gap-1 ${boundsStatus.message ? 'text-rose-600' : 'text-slate-500'}`}>
+              <p
+                className={`col-span-2 text-[11px] flex items-start gap-1 ${
+                  boundsStatus.message ? 'text-rose-600' : 'text-slate-500'
+                }`}
+              >
                 {boundsStatus.message ? (
                   <>
                     <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" /> {boundsStatus.message}
@@ -505,7 +531,9 @@ const ControlsPanel = memo(function ControlsPanel({
 
             {/* Axis of Revolution */}
             <div className="space-y-2">
-              <label className="text-xs text-slate-600 font-medium">Eje de giro / revolución</label>
+              <label className="text-xs text-slate-600 font-medium">
+                Eje de giro / revolución
+              </label>
               <div className="grid grid-cols-2 gap-2">
                 {[
                   { id: 'x', label: `Horizontal (y = ${displayedOffset})` },
@@ -515,7 +543,7 @@ const ControlsPanel = memo(function ControlsPanel({
                     key={id}
                     type="button"
                     onClick={() => handleAxisSelect(id)}
-                    className={`py-2 px-3 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer ${
+                    className={`min-h-[44px] md:min-h-[36px] py-2 px-3 rounded-xl md:rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer ${
                       displayedAxis === id
                         ? 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-600/25'
                         : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900 hover:border-blue-300'
@@ -529,7 +557,9 @@ const ControlsPanel = memo(function ControlsPanel({
               <div className="space-y-1 pt-1">
                 <div className="flex justify-between text-xs text-slate-600">
                   <span>Desplazamiento del eje ({displayedAxis === 'x' ? 'k' : 'c'})</span>
-                  <span className="font-mono text-blue-700 font-semibold tabular-nums">{displayedOffset}</span>
+                  <span className="font-mono text-blue-700 font-semibold tabular-nums">
+                    {displayedOffset}
+                  </span>
                 </div>
                 <input
                   type="range"
@@ -576,7 +606,9 @@ const ControlsPanel = memo(function ControlsPanel({
                 <span>
                   Posición <span className="font-mono">xᵢ</span> en [a, b]
                 </span>
-                <span className="font-mono text-amber-600 font-bold tabular-nums">{xi.toFixed(3)}</span>
+                <span className="font-mono text-amber-600 font-bold tabular-nums">
+                  {xi.toFixed(3)}
+                </span>
               </div>
               <input
                 type="range"
@@ -595,7 +627,9 @@ const ControlsPanel = memo(function ControlsPanel({
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs text-slate-600">
                 <span>Espesor dx = (b − a) / N · N =</span>
-                <span className="font-mono text-blue-700 font-bold tabular-nums">{slicesCount}</span>
+                <span className="font-mono text-blue-700 font-bold tabular-nums">
+                  {slicesCount}
+                </span>
               </div>
               <input
                 type="range"
@@ -615,7 +649,6 @@ const ControlsPanel = memo(function ControlsPanel({
               subtitle={`Mostrar las N ${diffPlural}; altura evaluada en el punto muestra xᵢ*`}
             />
 
-            {/* Selector del punto muestra x_i* (Izquierda / Derecha / Punto Medio) */}
             {showRiemann && (
               <div className={`${GLASS_INNER} p-2.5 space-y-1.5`}>
                 <div className="flex items-center justify-between text-[11px]">
@@ -642,7 +675,7 @@ const ControlsPanel = memo(function ControlsPanel({
                         key={id}
                         type="button"
                         onClick={() => setRiemannMode?.(id)}
-                        className={`py-1.5 px-2 rounded-md border text-[11px] font-semibold transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer ${
+                        className={`min-h-[44px] md:min-h-[32px] py-2 md:py-1.5 px-2 rounded-lg md:rounded-md border text-[11px] font-semibold transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer ${
                           active
                             ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
                             : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900 hover:border-blue-300'
@@ -656,7 +689,6 @@ const ControlsPanel = memo(function ControlsPanel({
               </div>
             )}
 
-            {/* Comparative Card: Riemann vs Exact Integral */}
             {showRiemann && riemannStats && (
               <div className="rounded-xl p-3 bg-gradient-to-br from-blue-50/90 via-white to-amber-50/80 border border-blue-200/80 space-y-2.5 shadow-sm">
                 <div className="flex items-center justify-between border-b border-blue-100 pb-1.5">
@@ -675,7 +707,8 @@ const ControlsPanel = memo(function ControlsPanel({
                       Suma Riemann (V<sub>aprox</sub>)
                     </span>
                     <span className="font-mono font-bold text-blue-700 text-sm tabular-nums">
-                      {riemannStats.vApprox.toFixed(4)} <span className="text-[10px] font-normal text-slate-500">u³</span>
+                      {riemannStats.vApprox.toFixed(4)}{' '}
+                      <span className="text-[10px] font-normal text-slate-500">u³</span>
                     </span>
                     <span className="text-[10px] font-mono text-slate-400 block tabular-nums">
                       ≈ {(riemannStats.vApprox / Math.PI).toFixed(4)}π
@@ -687,7 +720,8 @@ const ControlsPanel = memo(function ControlsPanel({
                       Volumen Exacto (V<sub>exacto</sub>)
                     </span>
                     <span className="font-mono font-bold text-amber-600 text-sm tabular-nums">
-                      {riemannStats.vExact.toFixed(4)} <span className="text-[10px] font-normal text-slate-500">u³</span>
+                      {riemannStats.vExact.toFixed(4)}{' '}
+                      <span className="text-[10px] font-normal text-slate-500">u³</span>
                     </span>
                     <span className="text-[10px] font-mono text-slate-400 block tabular-nums">
                       ≈ {(riemannStats.vExact / Math.PI).toFixed(4)}π
@@ -721,11 +755,16 @@ const ControlsPanel = memo(function ControlsPanel({
                     />
                   </div>
                   <p className="text-[10px] text-slate-500 leading-relaxed">
-                    Al aumentar <b className="text-slate-800">N → ∞</b>, el espesor <b className="text-slate-800">dx → 0</b> y el error relativo converge a <b className="text-amber-700">0.000%</b>.
+                    Al aumentar <b className="text-slate-800">N → ∞</b>, el espesor{' '}
+                    <b className="text-slate-800">dx → 0</b> y el error relativo converge a{' '}
+                    <b className="text-amber-700">0.000%</b>.
                   </p>
                   {riemannMode === 'midpoint' && riemannStats.isLinearIntegrand && (
                     <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 leading-relaxed">
-                      <b>Nota (Punto Medio):</b> En esta función el integrando es lineal en <i>x</i> (p. ej. <i>R(x)² = x</i>), por lo que en cada subintervalo el exceso de una mitad compensa exactamente el defecto de la otra. Prueba <b>Izquierda</b> o <b>Derecha</b> para observar el error con <i>N</i> finito.
+                      <b>Nota (Punto Medio):</b> En esta función el integrando es lineal en <i>x</i>{' '}
+                      (p. ej. <i>R(x)² = x</i>), por lo que en cada subintervalo el exceso de una mitad
+                      compensa exactamente el defecto de la otra. Prueba <b>Izquierda</b> o{' '}
+                      <b>Derecha</b> para observar el error con <i>N</i> finito.
                     </p>
                   )}
                 </div>
@@ -734,18 +773,18 @@ const ControlsPanel = memo(function ControlsPanel({
 
             {!showRiemann && (
               <p className="text-[11px] text-slate-500">
-                Activa la aproximación de Riemann para comparar la suma finita de {diffPlural} frente al volumen exacto.
+                Activa la aproximación de Riemann para comparar la suma finita de {diffPlural} frente
+                al volumen exacto.
               </p>
             )}
           </div>
         )}
 
-        {/* Tab 3: Display Settings (Renderizado y Cortes) */}
+        {/* Tab 3: Display Settings */}
         {activeTab === 'display' && (
           <div className="space-y-4">
-            {/* Cross-Section Toggle (180° / 270°) */}
             <div className={`${GLASS_INNER} space-y-2 p-3`}>
-              <div className="flex items-center justify-between gap-3">
+              <label className="flex items-center justify-between gap-3 cursor-pointer min-h-[44px]">
                 <div className="flex items-start gap-2">
                   <Scissors className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />
                   <div>
@@ -757,13 +796,15 @@ const ControlsPanel = memo(function ControlsPanel({
                     </span>
                   </div>
                 </div>
-                <input
-                  type="checkbox"
-                  checked={isCrossSectionActive}
-                  onChange={(e) => handleToggleCrossSection(e.target.checked)}
-                  className="w-4 h-4 accent-blue-600 cursor-pointer shrink-0"
-                />
-              </div>
+                <span className="min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0 flex items-center justify-end shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={isCrossSectionActive}
+                    onChange={(e) => handleToggleCrossSection(e.target.checked)}
+                    className="w-5 h-5 md:w-4 md:h-4 accent-blue-600 cursor-pointer shrink-0"
+                  />
+                </span>
+              </label>
 
               <div className="grid grid-cols-3 gap-1.5 pt-1">
                 {[
@@ -777,7 +818,7 @@ const ControlsPanel = memo(function ControlsPanel({
                       key={deg}
                       type="button"
                       onClick={() => handleSelectCutAngle(deg)}
-                      className={`py-1.5 px-2 rounded-md border text-[11px] font-mono font-semibold transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer ${
+                      className={`min-h-[44px] md:min-h-[32px] py-2 md:py-1.5 px-2 rounded-lg md:rounded-md border text-[11px] font-mono font-semibold transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer ${
                         active
                           ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
                           : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900 hover:border-blue-300'
@@ -790,11 +831,14 @@ const ControlsPanel = memo(function ControlsPanel({
               </div>
             </div>
 
-            {/* Opacity / Transparency Slider (0.1 to 1.0) */}
             <div className={`${GLASS_INNER} space-y-1.5 p-3`}>
               <div className="flex justify-between text-xs">
-                <span className="font-semibold text-slate-800">Transparencia del Sólido (Opacidad)</span>
-                <span className="font-mono text-blue-700 font-bold tabular-nums">{Math.round(opacity * 100)}%</span>
+                <span className="font-semibold text-slate-800">
+                  Transparencia del Sólido (Opacidad)
+                </span>
+                <span className="font-mono text-blue-700 font-bold tabular-nums">
+                  {Math.round(opacity * 100)}%
+                </span>
               </div>
               <input
                 type="range"
@@ -807,11 +851,11 @@ const ControlsPanel = memo(function ControlsPanel({
               />
               <p className="text-[11px] text-slate-500">
                 Ajusta entre 0.1 y 1.0 para que la {diffName} dorada interna{' '}
-                <span className="font-mono text-amber-600 font-semibold">dx</span> sea visible incluso con el sólido cerrado.
+                <span className="font-mono text-amber-600 font-semibold">dx</span> sea visible incluso
+                con el sólido cerrado.
               </p>
             </div>
 
-            {/* Wireframe Checkbox */}
             <Toggle
               checked={wireframe}
               onChange={setWireframe}
@@ -821,18 +865,20 @@ const ControlsPanel = memo(function ControlsPanel({
           </div>
         )}
 
-        {/* Revolution sweep (always accessible) */}
+        {/* Revolution sweep (always accessible, touch-sized >= 44x44px en móvil) */}
         <div className="pt-3 border-t border-slate-200/80 space-y-3">
           <div className="flex justify-between items-center text-xs">
             <span className="font-semibold text-slate-700">Barrido angular (giro)</span>
-            <span className="font-mono font-bold text-blue-700 text-sm tabular-nums">{Math.round(angleDeg)}°</span>
+            <span className="font-mono font-bold text-blue-700 text-sm tabular-nums">
+              {Math.round(angleDeg)}°
+            </span>
           </div>
 
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={handlePlayPause}
-              className="p-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-900 font-bold transition-all duration-150 active:scale-[0.97] transform-gpu shadow-md shadow-amber-500/25 cursor-pointer"
+              className="min-h-[44px] min-w-[44px] md:min-h-[36px] md:min-w-[36px] p-2.5 md:p-2 rounded-xl md:rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-900 font-bold transition-all duration-150 active:scale-[0.97] transform-gpu shadow-md shadow-amber-500/25 cursor-pointer flex items-center justify-center shrink-0"
               title={isPlaying ? 'Pausar giro' : 'Reproducir giro'}
             >
               {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
@@ -840,7 +886,7 @@ const ControlsPanel = memo(function ControlsPanel({
             <button
               type="button"
               onClick={handleSetFullSolid}
-              className="p-2 rounded-lg bg-white hover:bg-blue-50 border border-slate-200 text-slate-700 transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer"
+              className="min-h-[44px] min-w-[44px] md:min-h-[36px] md:min-w-[36px] p-2.5 md:p-2 rounded-xl md:rounded-lg bg-white hover:bg-blue-50 border border-slate-200 text-slate-700 transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer flex items-center justify-center shrink-0"
               title="Sólido completo 360°"
             >
               <Box className="w-4 h-4" />
@@ -848,7 +894,7 @@ const ControlsPanel = memo(function ControlsPanel({
             <button
               type="button"
               onClick={handleResetAngle}
-              className="p-2 rounded-lg bg-white hover:bg-blue-50 border border-slate-200 text-slate-700 transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer"
+              className="min-h-[44px] min-w-[44px] md:min-h-[36px] md:min-w-[36px] p-2.5 md:p-2 rounded-xl md:rounded-lg bg-white hover:bg-blue-50 border border-slate-200 text-slate-700 transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer flex items-center justify-center shrink-0"
               title="Reiniciar a 0°"
             >
               <RotateCcw className="w-4 h-4" />
@@ -860,22 +906,26 @@ const ControlsPanel = memo(function ControlsPanel({
               step="1"
               value={angleDeg}
               onChange={handleAngleSliderChange}
-              className="flex-1 accent-blue-600 cursor-pointer"
+              className="flex-1 min-w-0 accent-blue-600 cursor-pointer"
             />
           </div>
 
           {/* Revolución Angular (Disparador de Animación 3D) */}
-          <div className="flex items-center justify-between gap-2 p-2.5 bg-slate-50 rounded-lg border border-slate-200">
+          <div className="flex items-center justify-between gap-2 p-2.5 bg-slate-50 rounded-xl md:rounded-lg border border-slate-200">
             <div className="flex flex-col min-w-0">
-              <span className="text-xs font-semibold text-slate-700 leading-tight">Revolución Angular</span>
-              <span className="text-[11px] text-slate-500 leading-tight">Generación del sólido</span>
+              <span className="text-xs font-semibold text-slate-700 leading-tight">
+                Revolución Angular
+              </span>
+              <span className="text-[11px] text-slate-500 leading-tight">
+                Generación del sólido
+              </span>
             </div>
 
             <button
               type="button"
-              onClick={startRevolutionAnimation}
+              onClick={handleStartRevolutionAnimation}
               disabled={isAnimatingPreset}
-              className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+              className={`min-h-[44px] md:min-h-[34px] shrink-0 flex items-center gap-1.5 px-4 md:px-3 py-2 md:py-1.5 text-xs font-medium rounded-xl md:rounded-lg transition-colors ${
                 isAnimatingPreset
                   ? 'bg-amber-500 text-slate-950 cursor-not-allowed'
                   : 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer'

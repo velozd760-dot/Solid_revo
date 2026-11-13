@@ -18,14 +18,15 @@ import {
   createSweepCaps,
 } from '../math/geometryGenerator';
 import { computeRiemannSlices } from '../math/calculusEngine';
-import { Rotate3D, Compass, Camera } from 'lucide-react';
+import { Rotate3D, Compass, Camera, AlertTriangle } from 'lucide-react';
 import { GLASS } from './GlassCard';
+import { detectSoftwareWebGL, useViewportMetrics } from '../hooks/useViewport';
 
 const COLORS = {
   solid: '#3b82f6', // blue-500
   cap: '#1d4ed8', // blue-700
   slice: '#60a5fa', // blue-400
-  element: '#fbbf24', // amber-400 (arandela / capa cilíndrica dx en amarillo/ámbar intenso)
+  element: '#fbbf24', // amber-400
   axis: '#e11d48',
 };
 
@@ -45,50 +46,24 @@ const ANIM_PHASE1_CAMERA_DURATION = 1.2;
 const ANIM_PHASE2_SWEEP_DURATION = 2.2;
 const ANIM_MIN_SAFE_ANGLE_RAD = 0.01;
 
+// Gestos táctiles nativos explícitos para OrbitControls:
+// 1 dedo rota, 2 dedos hacen pinch-to-zoom + paneo simultáneo
+const TOUCH_CONFIG = {
+  ONE: THREE.TOUCH.ROTATE,
+  TWO: THREE.TOUCH.DOLLY_PAN,
+};
+
+const CANVAS_RESIZE_CONFIG = {
+  scroll: false,
+  debounce: { scroll: 50, resize: 0 },
+};
+
 function easeInOutCubic(t) {
   const c = Math.max(0, Math.min(1, t));
   return c < 0.5 ? 4 * c * c * c : 1 - Math.pow(-2 * c + 2, 3) / 2;
 }
 
-const MOBILE_MEDIA_QUERY = '(max-width: 768px)';
-
-/**
- * Detecta viewport móvil/estrecho mediante media query para aplicar optimizaciones
- * de renderizado WebGL sin alterar el comportamiento de escritorio.
- */
-function useIsMobileViewport(query = MOBILE_MEDIA_QUERY) {
-  const [isMobile, setIsMobile] = useState(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-      return false;
-    }
-    return window.matchMedia(query).matches;
-  });
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-      return undefined;
-    }
-    const mql = window.matchMedia(query);
-    const onChange = (event) => setIsMobile(event.matches);
-
-    if (typeof mql.addEventListener === 'function') {
-      mql.addEventListener('change', onChange);
-      return () => mql.removeEventListener('change', onChange);
-    }
-    mql.addListener(onChange);
-    return () => mql.removeListener(onChange);
-  }, [query]);
-
-  return isMobile;
-}
-
-const GL_CONFIG = {
-  powerPreference: 'low-power',
-  antialias: true,
-  alpha: true,
-  preserveDrawingBuffer: true,
-};
-
+// 3 niveles de detalle geométrico (LOD) para mantener 60 FPS en desktop y móviles
 const LOD_HIGH = Object.freeze({
   solidXSegments: 64,
   solidThetaSegments: 72,
@@ -97,18 +72,25 @@ const LOD_HIGH = Object.freeze({
   slicesThetaSegments: 32,
 });
 
+const LOD_MOBILE = Object.freeze({
+  solidXSegments: 36,
+  solidThetaSegments: 36,
+  capsXSegments: 24,
+  elementThetaSegments: 32,
+  slicesThetaSegments: 18,
+});
+
 const LOD_DRAFT = Object.freeze({
-  solidXSegments: 24,
-  solidThetaSegments: 24,
-  capsXSegments: 16,
-  elementThetaSegments: 20,
-  slicesThetaSegments: 14,
+  solidXSegments: 22,
+  solidThetaSegments: 22,
+  capsXSegments: 14,
+  elementThetaSegments: 18,
+  slicesThetaSegments: 12,
 });
 
 /**
  * Libera estrictamente la geometría anterior en GPU cada vez que se recalcula
- * la malla o al desmontar. El material (y su shader GLSL compilado) se conserva
- * vivo durante el arrastre de k y los cambios de eje, liberándose solo al desmontar.
+ * la malla o al desmontar.
  */
 function useDisposableMesh(geometry, materialRef) {
   useEffect(() => {
@@ -295,7 +277,7 @@ const RiemannSlices = memo(function RiemannSlices({
   ) : null;
 });
 
-/** Elemento diferencial sincronizado con el rectángulo del plano 2D (con offset anti z-fighting). */
+/** Elemento diferencial sincronizado con el rectángulo del plano 2D. */
 const DifferentialElement = memo(function DifferentialElement({
   f,
   g,
@@ -370,10 +352,82 @@ const AxisLine = memo(function AxisLine({ axis, axisOffset, bounds }) {
 });
 
 /**
+ * Sincronización dinámica del tamaño del WebGLRenderer, aspecto y FOV de la cámara
+ * ante rotaciones de pantalla móvil (portrait <-> landscape) y cambios de visualViewport.
+ */
+const CanvasViewportSync = memo(function CanvasViewportSync({
+  isMobile,
+  isPortrait,
+  canRender,
+  targetDpr,
+}) {
+  const getThree = useThree((state) => state.get);
+  const setSize = useThree((state) => state.setSize);
+  const invalidate = useThree((state) => state.invalidate);
+
+  useEffect(() => {
+    const { camera } = getThree();
+    const nextFov = isMobile && isPortrait ? 52 : 45;
+    if (camera && camera.fov !== nextFov) {
+      camera.fov = nextFov;
+      camera.updateProjectionMatrix();
+      if (canRender) invalidate();
+    }
+  }, [getThree, isMobile, isPortrait, canRender, invalidate]);
+
+  useEffect(() => {
+    const { gl } = getThree();
+    if (!gl) return;
+    gl.setPixelRatio(targetDpr);
+    if (canRender) invalidate();
+  }, [getThree, targetDpr, canRender, invalidate]);
+
+  useEffect(() => {
+    const { gl, camera } = getThree();
+    const canvas = gl?.domElement;
+    const container = canvas?.parentElement;
+    if (!container || typeof window === 'undefined') return undefined;
+
+    let timerId = null;
+    const syncDimensions = () => {
+      const rect = container.getBoundingClientRect();
+      const width = Math.max(1, Math.round(rect.width));
+      const height = Math.max(1, Math.round(rect.height));
+      if (width > 1 && height > 1) {
+        setSize(width, height);
+        if (camera) {
+          camera.aspect = width / height;
+          camera.updateProjectionMatrix();
+        }
+        if (canRender) invalidate();
+      }
+    };
+
+    const handleOrientation = () => {
+      syncDimensions();
+      if (timerId) clearTimeout(timerId);
+      // En iOS/Android la barra de navegación tarda ~120ms en estabilizar el viewport tras rotar
+      timerId = setTimeout(syncDimensions, 140);
+    };
+
+    const ro = new ResizeObserver(syncDimensions);
+    ro.observe(container);
+    window.addEventListener('orientationchange', handleOrientation, { passive: true });
+    window.visualViewport?.addEventListener('resize', syncDimensions, { passive: true });
+
+    return () => {
+      if (timerId) clearTimeout(timerId);
+      ro.disconnect();
+      window.removeEventListener('orientationchange', handleOrientation);
+      window.visualViewport?.removeEventListener('resize', syncDimensions);
+    };
+  }, [getThree, setSize, canRender, invalidate]);
+
+  return null;
+});
+
+/**
  * Persistencia y transición suave de la cámara 3D sin bucles useFrame en reposo.
- * - Restaura position, target y zoom desde cameraStateRef al montar OrbitControls.
- * - Guarda las coordenadas actuales al desmontar o cuando cambia OrbitControls.
- * - Ejecuta la transición suave (cubic-out) hacia la cámara por defecto SOLO con "Centrar" o reset explícito.
  */
 const CameraRig = memo(function CameraRig({
   controlsRef,
@@ -689,7 +743,6 @@ const RevolutionAnimator = memo(function RevolutionAnimator({
     const { camera } = state;
     const controls = controlsRef.current;
 
-    // Frame inicial (t = 0s): mantiene vista plana 2D perpendicular al XY antes de avanzar
     if (!anim.firstFrameRendered) {
       anim.firstFrameRendered = true;
       anim.lastTickMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -699,14 +752,12 @@ const RevolutionAnimator = memo(function RevolutionAnimator({
       return;
     }
 
-    // Reloj real acotado a 0.2s por frame: evita cámara lenta bajo FPS reducidos y saltos tras pausas
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const dt = Math.min(Math.max((now - anim.lastTickMs) / 1000, 0), 0.2);
     anim.lastTickMs = now;
     anim.elapsed += dt;
 
     if (anim.elapsed < ANIM_PHASE1_CAMERA_DURATION) {
-      // Fase 1 (0s - 1.2s): transición suave de cámara 2D -> perspectiva 3D predeterminada
       const t1 = easeInOutCubic(anim.elapsed / ANIM_PHASE1_CAMERA_DURATION);
       isRestoringRef.current = true;
       camera.position.lerpVectors(ANIM_CAMERA_2D_POSITION, ANIM_CAMERA_3D_POSITION, t1);
@@ -730,13 +781,11 @@ const RevolutionAnimator = memo(function RevolutionAnimator({
     const rawT2 = Math.min(1, sweepElapsed / ANIM_PHASE2_SWEEP_DURATION);
 
     if (rawT2 < 1) {
-      // Fase 2 (1.2s - 3.4s): barrido progresivo 0° -> 360° en LOD borrador (24x24)
       const nextAngleDeg = easeInOutCubic(rawT2) * 360;
       onAnimatedAngleChange?.(nextAngleDeg);
       return;
     }
 
-    // Finalización: estabiliza cámara, restaura LOD alto (64x72), reactiva OrbitControls y desbloquea UI
     anim.active = false;
     applyCameraPose(ANIM_CAMERA_3D_POSITION, ANIM_CAMERA_TARGET, {
       enableControls: Boolean(canRender),
@@ -771,7 +820,7 @@ const Scene = memo(function Scene({
   wireframe = false,
   opacity = 0.55,
   canRender = true,
-  isDraftLod = false,
+  lodTier = 'high',
   enforceMinSafeAngle = false,
 }) {
   const invalidate = useThree((state) => state.invalidate);
@@ -781,13 +830,13 @@ const Scene = memo(function Scene({
   const angleRad = enforceMinSafeAngle
     ? Math.max(ANIM_MIN_SAFE_ANGLE_RAD, rawAngleRad)
     : rawAngleRad;
-  const lod = isDraftLod ? LOD_DRAFT : LOD_HIGH;
+  const lod =
+    lodTier === 'draft' ? LOD_DRAFT : lodTier === 'mobile' ? LOD_MOBILE : LOD_HIGH;
   const bounds = useMemo(
     () => computeSolidBounds({ f, g, a, b, axis, axisOffset }),
     [f, g, a, b, axis, axisOffset]
   );
 
-  // Solicita un nuevo frame bajo demanda únicamente cuando el visor está visible/activo y cambian parámetros
   useEffect(() => {
     if (!canRender) return;
     invalidate();
@@ -811,10 +860,9 @@ const Scene = memo(function Scene({
     resolvedMode,
     wireframe,
     opacity,
-    isDraftLod,
+    lodTier,
   ]);
 
-  // Normaliza el tamaño del sólido para que siempre quepa en la vista (memoizado)
   const { scale, position, floorY } = useMemo(() => {
     const extent = Math.max(...bounds.size, 1e-3);
     const sc = Math.min(20, Math.max(0.02, 5 / extent));
@@ -933,7 +981,9 @@ const Canvas3D = memo(function Canvas3D({
   const isRestoringRef = useRef(false);
   const lastParentAngleSyncRef = useRef(0);
   const [isSequenceActive, setIsSequenceActive] = useState(false);
+  const [isTouchingCanvas, setIsTouchingCanvas] = useState(false);
   const [localAngleDeg, setLocalAngleDeg] = useState(null);
+  const [contextLost, setContextLost] = useState(false);
 
   const [isDocVisible, setIsDocVisible] = useState(() =>
     typeof document === 'undefined' ? true : !document.hidden
@@ -948,41 +998,43 @@ const Canvas3D = memo(function Canvas3D({
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
 
-  const isMobile = useIsMobileViewport(MOBILE_MEDIA_QUERY);
-  const [deviceDpr, setDeviceDpr] = useState(() =>
-    typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
-  );
+  const { isMobile, isPortrait, dpr: deviceDpr } = useViewportMetrics();
+  const isSoftwareGl = useMemo(() => detectSoftwareWebGL(), []);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
-    const syncDpr = () => setDeviceDpr(window.devicePixelRatio || 1);
-    window.addEventListener('resize', syncDpr);
-
-    let mql = null;
-    if (typeof window.matchMedia === 'function') {
-      mql = window.matchMedia(`(resolution: ${deviceDpr}dppx)`);
-      if (typeof mql.addEventListener === 'function') {
-        mql.addEventListener('change', syncDpr);
-      }
+  // Pixel ratio dinámico:
+  // - Software WebGL o durante arrastre táctil activo en móvil -> 1 para sostener 60 FPS
+  // - Móvil en reposo -> máx 1.5 (evita sobrecarga 3x Retina)
+  // - Escritorio en reposo -> máx 2.0
+  const maxDpr = useMemo(() => {
+    if (isSoftwareGl) return 1;
+    if (isMobile) {
+      return isTouchingCanvas || isSequenceActive ? 1 : Math.max(1, Math.min(deviceDpr, 1.5));
     }
+    return Math.max(1, Math.min(deviceDpr, 2));
+  }, [isSoftwareGl, isMobile, isTouchingCanvas, isSequenceActive, deviceDpr]);
 
-    return () => {
-      window.removeEventListener('resize', syncDpr);
-      if (mql && typeof mql.removeEventListener === 'function') {
-        mql.removeEventListener('change', syncDpr);
-      }
-    };
-  }, [deviceDpr]);
+  const dprRange = useMemo(() => [1, maxDpr], [maxDpr]);
 
-  const dprRange = useMemo(
-    () => [1, Math.max(1, Math.min(deviceDpr, 1.5))],
-    [deviceDpr]
+  const glConfig = useMemo(
+    () => ({
+      powerPreference: isMobile ? 'default' : 'high-performance',
+      antialias: !isSoftwareGl,
+      alpha: true,
+      preserveDrawingBuffer: true,
+    }),
+    [isMobile, isSoftwareGl]
   );
 
   const canRender = Boolean(isVisible && isDocVisible);
   const canRenderRef = useRef(canRender);
   const effectiveAngleDeg = localAngleDeg ?? angleDeg;
-  const effectiveDraftLod = Boolean(isMobile || isDraftLod || isSequenceActive);
+
+  // Selección inteligente de LOD: draft durante arrastres/animaciones, mobile en smartphones, high en desktop
+  const lodTier = useMemo(() => {
+    if (isDraftLod || isSequenceActive) return 'draft';
+    if (isMobile) return 'mobile';
+    return 'high';
+  }, [isDraftLod, isSequenceActive, isMobile]);
 
   useEffect(() => {
     canRenderRef.current = canRender;
@@ -1009,7 +1061,6 @@ const Canvas3D = memo(function Canvas3D({
       setLocalAngleDeg(deg);
       if (typeof deg !== 'number') return;
 
-      // Throttle de sincronización al árbol padre (~90ms) para evitar re-renders 60Hz en ControlsPanel/2D
       const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
       if (deg <= 0.01 || now - lastParentAngleSyncRef.current >= 90) {
         lastParentAngleSyncRef.current = now;
@@ -1022,7 +1073,7 @@ const Canvas3D = memo(function Canvas3D({
   const safeElement = element ?? DEFAULT_ELEMENT_3D;
   const elementLabel = axis === 'x' ? 'Arandela dx' : 'Capa cilíndrica dx';
 
-  // Limpieza global de escena y listas de renderizado al desmontar el visor 3D
+  // Limpieza global de escena y listeners de contexto WebGL al desmontar
   useEffect(() => {
     return () => {
       const ctx = r3fRef.current;
@@ -1049,7 +1100,6 @@ const Canvas3D = memo(function Canvas3D({
     const { gl, scene, camera } = ctx;
     gl.render(scene, camera);
 
-    // El visor es transparente: se compone sobre un fondo claro limpio para una captura nítida
     const src = gl.domElement;
     const out = document.createElement('canvas');
     out.width = src.width;
@@ -1075,6 +1125,14 @@ const Canvas3D = memo(function Canvas3D({
 
   const handleControlsStart = useCallback(() => {
     cancelResetFnRef.current?.();
+    setIsTouchingCanvas(true);
+  }, []);
+
+  const handleControlsEnd = useCallback(() => {
+    setIsTouchingCanvas(false);
+    if (canRenderRef.current) {
+      r3fRef.current?.invalidate?.();
+    }
   }, []);
 
   const handleControlsChange = useCallback(() => {
@@ -1099,80 +1157,141 @@ const Canvas3D = memo(function Canvas3D({
     }
   }, [cameraStateRef]);
 
+  const contextCleanupRef = useRef(null);
+
   const handleCreated = useCallback((state) => {
     r3fRef.current = state;
     state.gl.setClearColor(0x000000, 0);
+
+    const dom = state.gl.domElement;
+    if (dom) {
+      dom.style.touchAction = 'none';
+      const onLost = (e) => {
+        e.preventDefault();
+        setContextLost(true);
+      };
+      const onRestored = () => {
+        setContextLost(false);
+        state.invalidate();
+      };
+      dom.addEventListener('webglcontextlost', onLost, false);
+      dom.addEventListener('webglcontextrestored', onRestored, false);
+      contextCleanupRef.current = () => {
+        dom.removeEventListener('webglcontextlost', onLost, false);
+        dom.removeEventListener('webglcontextrestored', onRestored, false);
+      };
+    }
+
     if (canRenderRef.current) {
       state.invalidate();
     }
   }, []);
 
+  useEffect(() => {
+    return () => {
+      contextCleanupRef.current?.();
+    };
+  }, []);
+
   return (
-    <div className={`${GLASS} relative w-full h-full overflow-hidden`}>
+    <div
+      className={`${GLASS} relative w-full h-full overflow-hidden touch-none select-none overscroll-contain`}
+      style={{ touchAction: 'none' }}
+    >
       {/* 3D Header Badge */}
-      <div className="absolute top-2.5 left-3 z-10 flex items-center gap-2 pointer-events-none">
-        <span className="text-[10px] uppercase font-bold tracking-widest px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 shadow-sm flex items-center gap-1.5">
+      <div className="absolute top-2.5 left-2.5 sm:left-3 z-10 flex items-center gap-2 pointer-events-none">
+        <span className="text-[10px] uppercase font-bold tracking-widest px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 border border-blue-200 shadow-sm flex items-center gap-1.5">
           <Rotate3D className="w-3.5 h-3.5 text-blue-600" /> Visor WebGL 3D
         </span>
       </div>
 
-      {/* Top-right Action Buttons: Export PNG & Camera Reset */}
-      <div className="absolute top-2.5 right-3 z-10 flex items-center gap-1.5">
+      {/* Top-right Action Buttons (>= 44x44px en móvil para ergonomía táctil) */}
+      <div className="absolute top-2 right-2 sm:top-2.5 sm:right-3 z-10 flex items-center gap-1.5">
         <button
           type="button"
           onClick={handleExportPng}
-          className="px-2.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-900 text-xs font-bold shadow-md shadow-amber-500/20 flex items-center gap-1.5 transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer"
+          aria-label="Exportar captura PNG"
+          className="min-h-[44px] min-w-[44px] md:min-h-[34px] md:min-w-0 px-3 md:px-2.5 py-2 md:py-1.5 rounded-xl md:rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-900 text-xs font-bold shadow-md shadow-amber-500/20 flex items-center justify-center gap-1.5 transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer"
           title="Exportar captura limpia del visor 3D en formato PNG"
         >
-          <Camera className="w-3.5 h-3.5" />
-          <span className="text-[11px] hidden sm:inline">Exportar captura PNG</span>
+          <Camera className="w-4 h-4 md:w-3.5 md:h-3.5" />
+          <span className="text-[11px] hidden sm:inline">Exportar PNG</span>
         </button>
         <button
           type="button"
           onClick={handleResetCamera}
-          className="px-2.5 py-1.5 rounded-lg bg-white/90 hover:bg-blue-50 text-slate-700 border border-slate-200 text-xs shadow-sm flex items-center gap-1 transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer"
+          aria-label="Restablecer cámara"
+          className="min-h-[44px] min-w-[44px] md:min-h-[34px] md:min-w-0 px-3 md:px-2.5 py-2 md:py-1.5 rounded-xl md:rounded-lg bg-white/95 hover:bg-blue-50 text-slate-700 border border-slate-200 text-xs shadow-sm flex items-center justify-center gap-1 transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer"
           title="Restablecer posición de cámara"
         >
-          <Compass className="w-3.5 h-3.5 text-blue-600" />
+          <Compass className="w-4 h-4 md:w-3.5 md:h-3.5 text-blue-600" />
           <span className="text-[11px] font-medium hidden sm:inline">Centrar</span>
         </button>
       </div>
 
-      {/* Legend */}
-      <div className="absolute bottom-2.5 left-3 z-10 flex flex-wrap items-center gap-3 pointer-events-none text-[10px] font-medium text-slate-700 px-2.5 py-1 rounded-lg bg-white/85 border border-slate-200/80 shadow-sm">
-        <span className="flex items-center gap-1">
-          <i className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: COLORS.solid }} /> Sólido
-        </span>
-        <span className="flex items-center gap-1">
-          <i className="inline-block w-2.5 h-0.5" style={{ background: COLORS.axis }} /> Eje de giro
-        </span>
-        {(showElement || showRiemann) && (
-          <span className="flex items-center gap-1 tabular-nums">
-            <i className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: COLORS.element }} />
-            {elementLabel} · x = {Number(safeElement.xSample ?? safeElement.xc ?? 0).toFixed(2)}
+      {/* Legend + Touch gesture hint on mobile */}
+      <div className="absolute bottom-2.5 left-2.5 right-2.5 sm:right-auto sm:left-3 z-10 flex flex-wrap items-center justify-between sm:justify-start gap-x-3 gap-y-1 pointer-events-none text-[10px] font-medium text-slate-700 px-2.5 py-1.5 rounded-lg bg-white/90 border border-slate-200/80 shadow-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="flex items-center gap-1">
+            <i className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: COLORS.solid }} /> Sólido
           </span>
-        )}
+          <span className="flex items-center gap-1">
+            <i className="inline-block w-2.5 h-0.5" style={{ background: COLORS.axis }} /> Eje
+          </span>
+          {(showElement || showRiemann) && (
+            <span className="flex items-center gap-1 tabular-nums">
+              <i className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: COLORS.element }} />
+              {elementLabel} · x = {Number(safeElement.xSample ?? safeElement.xc ?? 0).toFixed(2)}
+            </span>
+          )}
+        </div>
+        <span className="text-[9px] text-slate-500 md:hidden">
+          1 dedo: rotar · 2 dedos: zoom/mover
+        </span>
       </div>
+
+      {contextLost && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-slate-50/95 p-4 text-center">
+          <AlertTriangle className="w-6 h-6 text-amber-500" />
+          <p className="text-xs font-semibold text-slate-700">
+            El contexto gráfico WebGL se suspendió temporalmente. Restaurando visor 3D...
+          </p>
+        </div>
+      )}
 
       <Canvas
         frameloop={canRender ? (isSequenceActive ? 'always' : 'demand') : 'never'}
         dpr={dprRange}
         camera={DEFAULT_CAMERA_CONFIG}
-        gl={GL_CONFIG}
+        gl={glConfig}
+        resize={CANVAS_RESIZE_CONFIG}
+        style={{ touchAction: 'none' }}
         onCreated={handleCreated}
       >
+        <CanvasViewportSync
+          isMobile={isMobile}
+          isPortrait={isPortrait}
+          canRender={canRender}
+          targetDpr={maxDpr}
+        />
         <OrbitControls
           ref={controlsRef}
           makeDefault
           enabled={canRender && !isSequenceActive}
-          enableDamping={true}
-          dampingFactor={isMobile ? 0.05 : 0.06}
-          rotateSpeed={isMobile ? 0.65 : 1}
-          zoomSpeed={isMobile ? 0.7 : 1}
-          panSpeed={isMobile ? 0.75 : 1}
+          enableDamping={!isSoftwareGl}
+          dampingFactor={isMobile ? 0.08 : 0.06}
+          enableRotate={true}
+          enableZoom={true}
+          enablePan={true}
+          screenSpacePanning={true}
+          touches={TOUCH_CONFIG}
+          rotateSpeed={isMobile ? 0.72 : 1}
+          zoomSpeed={isMobile ? 0.85 : 1}
+          panSpeed={isMobile ? 0.8 : 1}
           minDistance={1.5}
           maxDistance={40}
           onStart={handleControlsStart}
+          onEnd={handleControlsEnd}
           onChange={handleControlsChange}
         />
         <CameraRig
@@ -1215,7 +1334,7 @@ const Canvas3D = memo(function Canvas3D({
           wireframe={wireframe}
           opacity={opacity}
           canRender={canRender}
-          isDraftLod={effectiveDraftLod}
+          lodTier={lodTier}
           enforceMinSafeAngle={isSequenceActive}
         />
       </Canvas>

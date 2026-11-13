@@ -39,7 +39,7 @@ const AccordionStep = memo(function AccordionStep({
         type="button"
         onClick={handleClick}
         aria-expanded={isOpen}
-        className="w-full p-2.5 flex items-center justify-between gap-2 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-xl"
+        className="w-full min-h-[44px] p-2.5 flex items-center justify-between gap-2 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-xl"
       >
         <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 flex items-center gap-1.5 min-w-0">
           <span className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold bg-blue-600 text-white shrink-0">
@@ -176,7 +176,7 @@ const IntegralLatex = memo(function IntegralLatex({
   return (
     <div
       translate="no"
-      className={`${GLASS} notranslate md:h-full md:overflow-y-auto p-4 text-slate-800 space-y-3`}
+      className={`${GLASS} notranslate md:h-full md:overflow-y-auto md:overscroll-contain p-4 text-slate-800 space-y-3`}
     >
       {/* Title */}
       <div className="flex items-center gap-2 border-b border-slate-200/80 pb-2">
@@ -217,8 +217,8 @@ const IntegralLatex = memo(function IntegralLatex({
         </div>
       ))}
 
-      {/* Paso 7: Resultado Exacto y Simpson 1/3 (fuera del acordeón, sticky en móvil) */}
-      <div className="sticky bottom-0 z-40 bg-white/95 backdrop-blur shadow-md rounded-xl p-3 border border-amber-300 text-amber-900 space-y-2">
+      {/* Paso 7: Resultado Exacto y Simpson 1/3 (estático al final de la lista del procedimiento) */}
+      <div className="bg-white/95 backdrop-blur shadow-sm rounded-xl p-3 border border-amber-300 text-amber-900 space-y-2">
         <div className="flex items-center justify-between gap-2">
           <span className="text-[10px] uppercase tracking-wider font-semibold text-amber-800 flex items-center gap-1.5">
             <span className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold bg-amber-400 text-slate-900 shrink-0">

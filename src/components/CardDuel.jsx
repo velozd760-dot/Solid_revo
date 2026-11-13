@@ -920,7 +920,7 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
   return (
     <div
       onClick={handleBackgroundClick}
-      className="w-full h-[calc(100vh-80px)] max-w-7xl mx-auto p-4 flex flex-col justify-between gap-3 overflow-hidden relative rounded-3xl"
+      className="w-full min-h-[calc(100dvh-60px)] lg:h-[calc(100vh-76px)] max-w-7xl mx-auto p-3 sm:p-4 flex flex-col justify-between gap-3 overflow-y-auto lg:overflow-hidden relative rounded-3xl"
     >
       {/* Lienzo de confeti */}
       <canvas
@@ -933,17 +933,17 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
           1. BARRA SUPERIOR COMPACTA CON CONTROLES
          ===================================================================== */}
       <header
-        className={`${GLASS_CLEAR} shrink-0 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3`}
+        className={`${GLASS_CLEAR} shrink-0 px-3.5 sm:px-4 py-3 sm:py-2.5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 overflow-hidden`}
       >
-        <div className="flex flex-wrap items-center gap-3 min-w-0">
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 min-w-0 w-full lg:w-auto lg:flex-1">
           <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest bg-amber-100 text-amber-800 border border-amber-300 rounded-full px-3 py-1 shrink-0">
             <Swords className="w-3.5 h-3.5 text-amber-600" /> Duelo de Cartas
           </span>
-          <div className="min-w-0">
-            <h2 className="text-base md:text-lg font-extrabold tracking-tight text-slate-900 truncate">
+          <div className="min-w-0 flex-1 basis-full sm:basis-auto">
+            <h2 className="text-base md:text-lg font-extrabold tracking-tight text-slate-900 leading-tight sm:truncate">
               Desafíos de Sólidos de Revolución
             </h2>
-            <p className="text-[11px] text-slate-500 truncate">
+            <p className="text-xs sm:text-[11px] text-slate-500 leading-snug mt-0.5 sm:truncate">
               {selectedCard
                 ? 'Carta activa: haz clic en cualquier casilla vacía a la izquierda para colocarla.'
                 : 'Haz clic en una carta (o arrástrala) hacia su desafío correspondiente.'}
@@ -956,8 +956,10 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-          <div className={`${GLASS_CLEAR_INNER} px-3 py-1.5 flex items-center gap-1.5`}>
+        <div className="grid grid-cols-2 sm:flex sm:flex-row sm:flex-nowrap items-center gap-2 sm:gap-2.5 w-full sm:w-auto min-w-0 shrink-0">
+          <div
+            className={`${GLASS_CLEAR_INNER} min-h-[44px] sm:min-h-0 px-3 py-1.5 flex items-center justify-center sm:justify-start gap-1.5 min-w-0`}
+          >
             <Trophy className="w-4 h-4 text-amber-500 shrink-0" />
             <span className="text-xs font-semibold text-slate-600">Aciertos:</span>
             <span className="text-sm font-extrabold font-mono text-blue-700 tabular-nums">
@@ -965,7 +967,9 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
             </span>
           </div>
 
-          <div className={`${GLASS_CLEAR_INNER} px-3 py-1.5 flex items-center gap-1.5`}>
+          <div
+            className={`${GLASS_CLEAR_INNER} min-h-[44px] sm:min-h-0 px-3 py-1.5 flex items-center justify-center sm:justify-start gap-1.5 min-w-0`}
+          >
             <Flame className="w-4 h-4 text-blue-600 shrink-0" />
             <span className="text-xs font-semibold text-slate-600">Intentos:</span>
             <span className="text-sm font-extrabold font-mono text-slate-800 tabular-nums">
@@ -976,16 +980,16 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
           <button
             type="button"
             onClick={handleResetGame}
-            className="px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-900 font-bold text-xs shadow-sm flex items-center gap-1.5 transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer"
+            className="col-span-2 sm:col-span-1 w-full sm:w-auto min-h-[44px] lg:min-h-0 px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-900 font-bold text-xs shadow-sm flex items-center justify-center gap-1.5 transition-all duration-150 active:scale-[0.97] transform-gpu cursor-pointer whitespace-nowrap"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Reiniciar partida
+            <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+            <span>Reiniciar partida</span>
           </button>
         </div>
       </header>
 
       {/* =====================================================================
-          2. TABLERO DIVIDIDO ZERO-SCROLL (COLUMNAS BALANCEADAS)
+          2. TABLERO DIVIDIDO (SCROLL EN MÓVIL, ZERO-SCROLL EN ESCRITORIO)
          ===================================================================== */}
       <DndContext
         sensors={sensors}
@@ -993,12 +997,12 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
         onDragEnd={handleDragEnd}
         onDragCancel={() => setActiveCard(null)}
       >
-        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch overflow-hidden">
+        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch lg:overflow-hidden">
           {/* =================================================================
               COLUMNA IZQUIERDA: 4 ZONAS DE SOLUCIÓN (FLEX-1 DISTRIBUIDO)
              ================================================================= */}
           <section
-            className={`${GLASS_CLEAR} lg:col-span-6 h-full min-h-0 p-3.5 flex flex-col justify-between gap-2.5 overflow-hidden`}
+            className={`${GLASS_CLEAR} lg:col-span-6 lg:h-full min-h-0 p-3.5 flex flex-col justify-between gap-2.5 lg:overflow-hidden`}
           >
             <div className="shrink-0 flex items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
               <div className="flex items-center gap-2">
@@ -1030,7 +1034,7 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
               COLUMNA DERECHA: MAZO DE 8 CARTAS (CUADRÍCULA 2x4 PROPORCIONAL)
              ================================================================= */}
           <section
-            className={`${GLASS_CLEAR} lg:col-span-6 h-full min-h-0 p-3.5 flex flex-col justify-between gap-2.5 overflow-hidden`}
+            className={`${GLASS_CLEAR} lg:col-span-6 lg:h-full min-h-0 p-3.5 flex flex-col justify-between gap-2.5 lg:overflow-hidden`}
           >
             <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
               <div className="flex items-center gap-2">
@@ -1049,7 +1053,7 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
             </div>
 
             {availableCards.length > 0 ? (
-              <div className="flex-1 min-h-0 grid grid-cols-2 grid-rows-4 gap-3">
+              <div className="flex-1 min-h-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-rows-4 gap-3">
                 <AnimatePresence>
                   {availableCards.map((card) => (
                     <DraggableCard

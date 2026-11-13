@@ -590,21 +590,26 @@ const Canvas2D = memo(function Canvas2D({
         </span>
       </div>
 
-      <div ref={wrapRef} className="relative z-10 flex-1 min-h-0">
+      <div ref={wrapRef} className="relative z-10 flex-1 min-h-0 overscroll-contain">
         <canvas
           ref={canvasRef}
-          className={`absolute inset-0 z-10 w-full h-full block touch-none ${interactive ? 'cursor-ew-resize' : ''}`}
+          style={{ touchAction: 'none' }}
+          className={`absolute inset-0 z-10 w-full h-full block touch-none overscroll-contain ${interactive ? 'cursor-ew-resize' : ''}`}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
         />
       </div>
 
       {interactive && (
-        <div className="flex items-center gap-3 px-3 py-1.5 border-t border-slate-200/80 bg-amber-50/50 text-[11px]">
-          <MoveHorizontal className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-          <span className="text-slate-700 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 px-3 py-1 min-h-[44px] md:min-h-0 md:py-1.5 border-t border-slate-200/80 bg-amber-50/50 text-[11px]">
+          <MoveHorizontal className="w-4 h-4 md:w-3.5 md:h-3.5 text-amber-500 shrink-0" />
+          <span className="text-slate-700 shrink-0 hidden sm:inline">
             Posición del elemento <span className="font-mono text-amber-700 font-bold">x<sub>i</sub></span>
+          </span>
+          <span className="text-slate-700 shrink-0 sm:hidden font-mono font-bold text-amber-700">
+            x<sub>i</sub>
           </span>
           <input
             type="range"
@@ -613,7 +618,7 @@ const Canvas2D = memo(function Canvas2D({
             step={(b - a) / 400 || 0.01}
             value={safeElement.xc}
             onChange={handleSliderChange}
-            className="flex-1 accent-amber-500 cursor-pointer"
+            className="flex-1 min-w-0 accent-amber-500 cursor-pointer"
           />
           <span className="font-mono text-amber-700 font-bold w-14 text-right shrink-0 tabular-nums">
             {Number(safeElement.xSample ?? safeElement.xc ?? 0).toFixed(3)}
