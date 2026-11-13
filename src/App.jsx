@@ -458,7 +458,7 @@ export default function App() {
   return (
     <div
       translate="no"
-      className="notranslate w-full h-screen flex flex-col overflow-hidden text-slate-800 font-sans relative"
+      className="notranslate w-full min-h-screen md:h-screen flex flex-col overflow-x-clip md:overflow-hidden text-slate-800 font-sans relative"
     >
       {/* Fondo claro interactivo en la zona de contenido */}
       <MathBackground />
@@ -466,7 +466,7 @@ export default function App() {
       {/* =====================================================================
           HEADER FIJO Y COMPACTO (80px = h-20) PARA TEORÍA, SIMULADOR Y DESAFÍOS
          ===================================================================== */}
-      <header className="flex-none z-50 h-[80px] w-full bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4 border-b border-blue-500/40 shadow-md">
+      <header className="sticky top-0 md:static flex-none z-50 h-[80px] w-full bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4 border-b border-blue-500/40 shadow-md">
         {/* Identidad de marca y retorno al Hero de Inicio */}
         <div className="flex items-center gap-3 min-w-0">
           <button
@@ -550,11 +550,13 @@ export default function App() {
       </header>
 
       {/* =====================================================================
-          ZONA DE CONTENIDO PRINCIPAL (100vh Zero-Scroll en Simulador y Desafíos)
+          ZONA DE CONTENIDO PRINCIPAL (100vh Zero-Scroll en Simulador y Desafíos en escritorio)
          ===================================================================== */}
       <section
         className={`flex-1 min-h-0 w-full bg-blue-50/25 relative z-10 ${
-          isViewportLocked ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden py-6 pb-16'
+          isViewportLocked
+            ? 'overflow-visible md:overflow-hidden'
+            : 'overflow-y-auto overflow-x-hidden py-6 pb-16'
         }`}
       >
         <AnimatePresence mode="wait" initial={false}>
@@ -566,7 +568,7 @@ export default function App() {
             exit="exit"
             className={
               isViewportLocked
-                ? 'h-full w-full overflow-hidden'
+                ? 'min-h-full md:h-full w-full overflow-visible md:overflow-hidden'
                 : 'max-w-[1680px] mx-auto px-4 sm:px-6 lg:px-8'
             }
           >

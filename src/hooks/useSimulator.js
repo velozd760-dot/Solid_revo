@@ -230,6 +230,17 @@ export function useSimulator(isActive = true) {
   // Animación del giro
   const [angleDeg, setAngleDeg] = useState(DEFAULT_SIMULATOR_STATE.angleDeg);
   const [isPlaying, setIsPlaying] = useState(DEFAULT_SIMULATOR_STATE.isPlaying);
+  const [isAnimatingPreset, setIsAnimatingPreset] = useState(false);
+  const [animationTrigger, setAnimationTrigger] = useState(0);
+
+  const startRevolutionAnimation = useCallback(() => {
+    setIsAnimatingPreset(true);
+    setAnimationTrigger((prev) => prev + 1);
+  }, []);
+
+  const endRevolutionAnimation = useCallback(() => {
+    setIsAnimatingPreset(false);
+  }, []);
 
   // Elemento diferencial / Riemann
   const [slicesCount, setSlicesCount] = useState(DEFAULT_SIMULATOR_STATE.slicesCount);
@@ -504,6 +515,7 @@ export function useSimulator(isActive = true) {
   // Restablecimiento explícito e inmediato a valores por defecto + cámara 3D
   const resetSimulatorState = useCallback(() => {
     setIsPlaying(DEFAULT_SIMULATOR_STATE.isPlaying);
+    setIsAnimatingPreset(false);
     setIsAdjustingAxis(false);
     setIntegralDelayMs(350);
     setExpressionState(DEFAULT_SIMULATOR_STATE.expression);
@@ -550,6 +562,10 @@ export function useSimulator(isActive = true) {
     isAdjustingAxis, setIsAdjustingAxis,
     angleDeg, setAngleDeg,
     isPlaying, setIsPlaying,
+    isAnimatingPreset,
+    animationTrigger,
+    startRevolutionAnimation,
+    endRevolutionAnimation,
     slicesCount, setSlicesCount,
     showRiemann, setShowRiemann,
     riemannMode, setRiemannMode,

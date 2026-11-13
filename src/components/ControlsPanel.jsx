@@ -89,6 +89,8 @@ const ControlsPanel = memo(function ControlsPanel({
   setAngleDeg,
   isPlaying = DEFAULT_SIMULATOR_STATE.isPlaying,
   setIsPlaying,
+  isAnimatingPreset = false,
+  startRevolutionAnimation,
   slicesCount = DEFAULT_SIMULATOR_STATE.slicesCount,
   setSlicesCount,
   showRiemann = DEFAULT_SIMULATOR_STATE.showRiemann,
@@ -316,22 +318,22 @@ const ControlsPanel = memo(function ControlsPanel({
 
   const handlePlayPause = useCallback(() => {
     if (!isPlaying && angleDeg >= 360) setAngleDeg(0);
-    setIsPlaying(!isPlaying);
+    setIsPlaying?.(!isPlaying);
   }, [isPlaying, angleDeg, setAngleDeg, setIsPlaying]);
 
   const handleSetFullSolid = useCallback(() => {
-    setIsPlaying(false);
+    setIsPlaying?.(false);
     setAngleDeg(360);
   }, [setIsPlaying, setAngleDeg]);
 
   const handleResetAngle = useCallback(() => {
-    setIsPlaying(false);
+    setIsPlaying?.(false);
     setAngleDeg(0);
   }, [setIsPlaying, setAngleDeg]);
 
   const handleAngleSliderChange = useCallback(
     (e) => {
-      setIsPlaying(false);
+      setIsPlaying?.(false);
       setAngleDeg(parseFloat(e.target.value));
     },
     [setIsPlaying, setAngleDeg]
@@ -860,6 +862,37 @@ const ControlsPanel = memo(function ControlsPanel({
               onChange={handleAngleSliderChange}
               className="flex-1 accent-blue-600 cursor-pointer"
             />
+          </div>
+
+          {/* Revolución Angular (Disparador de Animación 3D) */}
+          <div className="flex items-center justify-between gap-2 p-2.5 bg-slate-50 rounded-lg border border-slate-200">
+            <div className="flex flex-col min-w-0">
+              <span className="text-xs font-semibold text-slate-700 leading-tight">Revolución Angular</span>
+              <span className="text-[11px] text-slate-500 leading-tight">Generación del sólido</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={startRevolutionAnimation}
+              disabled={isAnimatingPreset}
+              className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                isAnimatingPreset
+                  ? 'bg-amber-500 text-slate-950 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer'
+              }`}
+            >
+              {isAnimatingPreset ? (
+                <>
+                  <span className="w-3.5 h-3.5 border-2 border-slate-950/30 border-t-slate-950 rounded-full animate-spin" />
+                  <span>Animando...</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Animar</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>

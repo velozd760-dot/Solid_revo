@@ -2,7 +2,7 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from '
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
+  MouseSensor,
   TouchSensor,
   useDraggable,
   useDroppable,
@@ -394,7 +394,7 @@ const DraggableCard = memo(function DraggableCard({ card, isSelected, isShaking,
       onClick={handleClick}
       {...listeners}
       {...attributes}
-      className={`bg-white rounded-xl border p-2.5 h-full min-h-0 flex flex-col justify-between cursor-grab active:cursor-grabbing transform-gpu will-change-transform transition-all duration-150 ${
+      className={`select-none bg-white rounded-xl border p-2.5 h-full min-h-0 flex flex-col justify-between cursor-grab active:cursor-grabbing transform-gpu will-change-transform transition-all duration-150 ${
         isShaking
           ? 'border-rose-400 bg-rose-50/85 ring-4 ring-rose-200/60 shadow-[0_0_20px_rgba(244,63,94,0.28)] z-20'
           : isSelected
@@ -608,8 +608,17 @@ const CardDuel = memo(function CardDuel({ onNavigate }) {
   }, []);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 110, tolerance: 8 } })
+    useSensor(MouseSensor, {
+      activationConstraint: {
+        distance: 6,
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 250,
+        tolerance: 5,
+      },
+    })
   );
 
   // Contadores reactivos

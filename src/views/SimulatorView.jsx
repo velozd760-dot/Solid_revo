@@ -17,9 +17,9 @@ const SimulatorView = memo(function SimulatorView({ isActive = true }) {
   const sim = useSimulator(isActive);
 
   return (
-    <div className="h-[calc(100vh-80px)] w-full overflow-hidden p-4 grid grid-cols-12 gap-4">
-      {/* COLUMNA 1: Panel de Control (col-span-3 en escritorio) con scroll interno */}
-      <div className="col-span-12 lg:col-span-3 h-full max-h-full min-h-0 overflow-y-auto">
+    <div className="w-full min-h-screen md:min-h-0 md:h-[calc(100vh-80px)] overflow-x-clip md:overflow-hidden p-4 flex flex-col md:grid md:grid-cols-12 gap-4">
+      {/* 1. Panel de Control: arriba en móvil, col-span-3 con scroll interno en escritorio */}
+      <div className="order-1 w-full md:col-span-12 lg:col-span-3 md:h-full md:max-h-full md:min-h-0 md:overflow-y-auto">
         <ControlsPanel
           expression={sim.expression}
           setExpression={sim.setExpression}
@@ -40,6 +40,8 @@ const SimulatorView = memo(function SimulatorView({ isActive = true }) {
           setAngleDeg={sim.setAngleDeg}
           isPlaying={sim.isPlaying}
           setIsPlaying={sim.setIsPlaying}
+          isAnimatingPreset={sim.isAnimatingPreset}
+          startRevolutionAnimation={sim.startRevolutionAnimation}
           slicesCount={sim.slicesCount}
           setSlicesCount={sim.setSlicesCount}
           showRiemann={sim.showRiemann}
@@ -70,8 +72,60 @@ const SimulatorView = memo(function SimulatorView({ isActive = true }) {
         />
       </div>
 
-      {/* COLUMNA CENTRAL: Visores 2D y 3D apilados verticalmente (h-1/2 cada uno) */}
-      <main className="col-span-12 lg:col-span-5 xl:col-span-6 h-full max-h-full min-h-0 flex flex-col gap-4 overflow-hidden">
+      {/* 2 & 3. Visores Cartesiano 2D y WebGL 3D:
+          - En móvil (< md): se muestran directamente en el flujo vertical (Canvas2D orden 2, Canvas3D orden 3) con min-h-[300px] h-[320px]
+          - En escritorio (>= md): apilados al 50% de altura cada uno en la columna central
+      */}
+      <div className="order-2 w-full min-h-[300px] h-[320px] md:hidden overflow-hidden">
+        <Canvas2D
+          f={sim.f}
+          g={sim.g}
+          hasG={sim.useG && sim.gParsed.isValid}
+          a={sim.a}
+          b={sim.b}
+          axis={sim.deferredAxis}
+          axisOffset={sim.deferredAxisOffset}
+          element={sim.element}
+          showElement={sim.showElement}
+          showRiemann={sim.showRiemann}
+          riemannMode={sim.riemannMode}
+          riemannSlices={sim.riemannSlices}
+          slicesCount={sim.slicesCount}
+          onElementMove={sim.moveElement}
+        />
+      </div>
+
+      <div className="order-3 w-full min-h-[300px] h-[320px] md:hidden overflow-hidden">
+        <Canvas3D
+          f={sim.f}
+          g={sim.g}
+          a={sim.a}
+          b={sim.b}
+          axis={sim.deferredAxis}
+          axisOffset={sim.deferredAxisOffset}
+          angleDeg={sim.angleDeg}
+          setAngleDeg={sim.setAngleDeg}
+          setIsPlaying={sim.setIsPlaying}
+          isAnimatingPreset={sim.isAnimatingPreset}
+          animationTrigger={sim.animationTrigger}
+          endRevolutionAnimation={sim.endRevolutionAnimation}
+          slicesCount={sim.slicesCount}
+          element={sim.element}
+          showElement={sim.showElement}
+          showRiemann={sim.showRiemann}
+          riemannMode={sim.riemannMode}
+          riemannSlices={sim.riemannSlices}
+          wireframe={sim.wireframe}
+          opacity={sim.opacity}
+          cameraStateRef={sim.cameraStateRef}
+          cameraResetNonce={sim.cameraResetNonce}
+          isVisible={isActive}
+          isDraftLod={sim.isAdjustingAxis}
+        />
+      </div>
+
+      {/* COLUMNA CENTRAL (escritorio >= md): Visores 2D y 3D apilados verticalmente (h-1/2 cada uno) */}
+      <main className="hidden md:flex md:col-span-12 lg:col-span-5 xl:col-span-6 h-full max-h-full min-h-0 flex-col gap-4 overflow-hidden">
         <div className="h-1/2 min-h-0 w-full overflow-hidden">
           <Canvas2D
             f={sim.f}
@@ -100,6 +154,11 @@ const SimulatorView = memo(function SimulatorView({ isActive = true }) {
             axis={sim.deferredAxis}
             axisOffset={sim.deferredAxisOffset}
             angleDeg={sim.angleDeg}
+            setAngleDeg={sim.setAngleDeg}
+            setIsPlaying={sim.setIsPlaying}
+            isAnimatingPreset={sim.isAnimatingPreset}
+            animationTrigger={sim.animationTrigger}
+            endRevolutionAnimation={sim.endRevolutionAnimation}
             slicesCount={sim.slicesCount}
             element={sim.element}
             showElement={sim.showElement}
@@ -116,8 +175,8 @@ const SimulatorView = memo(function SimulatorView({ isActive = true }) {
         </div>
       </main>
 
-      {/* COLUMNA DERECHA: Panel de Fórmulas y Paso a Paso con scroll interno */}
-      <aside className="col-span-12 lg:col-span-4 xl:col-span-3 h-full max-h-full min-h-0 overflow-y-auto">
+      {/* 4. Panel de Fórmulas y Paso a Paso: abajo en móvil (orden 4), col-span-3/4 con scroll interno en escritorio */}
+      <aside className="order-4 w-full md:col-span-12 lg:col-span-4 xl:col-span-3 md:h-full md:max-h-full md:min-h-0 md:overflow-y-auto">
         <IntegralLatex
           steps={sim.integralData.steps}
           hasG={sim.useG}

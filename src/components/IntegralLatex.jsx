@@ -1,5 +1,5 @@
-import React, { memo, useMemo } from 'react';
-import { Calculator, AlertTriangle, Info } from 'lucide-react';
+import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { Calculator, AlertTriangle, ChevronDown, Info } from 'lucide-react';
 import KatexBlock from './KatexBlock';
 import { GLASS, GLASS_INNER } from './GlassCard';
 
@@ -11,41 +11,64 @@ const COLOR = {
   slate: 'text-slate-800',
 };
 
-const Step = memo(
-  function Step({ n, title, tex, color = 'slate', highlight = false }) {
-    return (
-      <div
-        className={`rounded-xl p-2.5 border transition-colors ${
-          highlight
-            ? 'bg-amber-50/70 border-amber-300 text-amber-900 shadow-sm'
-            : `${GLASS_INNER} hover:border-blue-200`
-        }`}
+const DESKTOP_MEDIA_QUERY = '(min-width: 768px)';
+
+function getIsDesktopViewport() {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return true;
+  }
+  return window.matchMedia(DESKTOP_MEDIA_QUERY).matches;
+}
+
+const AccordionStep = memo(function AccordionStep({
+  index,
+  n,
+  title,
+  tex,
+  color = 'slate',
+  isOpen,
+  onToggle,
+}) {
+  const handleClick = useCallback(() => {
+    onToggle(index);
+  }, [index, onToggle]);
+
+  return (
+    <div className={`${GLASS_INNER} rounded-xl border transition-colors hover:border-blue-200`}>
+      <button
+        type="button"
+        onClick={handleClick}
+        aria-expanded={isOpen}
+        className="w-full p-2.5 flex items-center justify-between gap-2 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-xl"
       >
-        <div
-          className={`text-[10px] uppercase tracking-wider mb-0.5 font-semibold flex items-center gap-1.5 ${
-            highlight ? 'text-amber-800' : 'text-slate-500'
-          }`}
-        >
-          <span
-            className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold ${
-              highlight ? 'bg-amber-400 text-slate-900' : 'bg-blue-600 text-white'
-            }`}
-          >
+        <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 flex items-center gap-1.5 min-w-0">
+          <span className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold bg-blue-600 text-white shrink-0">
             {n}
           </span>
-          {title}
+          <span className="truncate">{title}</span>
+        </span>
+        <ChevronDown
+          className={`w-4 h-4 text-slate-400 shrink-0 transition-transform duration-200 ${
+            isOpen ? 'rotate-180 text-blue-600' : ''
+          }`}
+        />
+      </button>
+
+      <div
+        aria-hidden={!isOpen}
+        className={`grid transition-[grid-template-rows,opacity] duration-250 ease-out ${
+          isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+        }`}
+      >
+        <div className="overflow-hidden">
+          <div className="px-2.5 pb-2.5 pt-0.5 border-t border-slate-100">
+            <KatexBlock tex={tex} className={`text-sm ${COLOR[color]}`} />
+          </div>
         </div>
-        <KatexBlock tex={tex} className={`text-sm ${COLOR[color]}`} />
       </div>
-    );
-  },
-  (prev, next) =>
-    prev.tex === next.tex &&
-    prev.n === next.n &&
-    prev.title === next.title &&
-    prev.color === next.color &&
-    prev.highlight === next.highlight
-);
+    </div>
+  );
+});
 
 const IntegralLatex = memo(function IntegralLatex({
   steps,
@@ -56,8 +79,43 @@ const IntegralLatex = memo(function IntegralLatex({
 }) {
   const isWashers = steps.method === 'washers';
 
-  // Construye la lista de pasos visibles (memoizada)
-  const rows = useMemo(() => {
+  const [isDesktop, setIsDesktop] = useState(getIsDesktopViewport);
+  const [openSteps, setOpenSteps] = useState(() => ({ 0: true }));
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined;
+    }
+    const mql = window.matchMedia(DESKTOP_MEDIA_QUERY);
+    const onChange = (event) => {
+      setIsDesktop(event.matches);
+      setOpenSteps(
+        event.matches
+          ? { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true }
+          : { 0: true }
+      );
+    };
+
+    if (typeof mql.addEventListener === 'function') {
+      mql.addEventListener('change', onChange);
+      return () => mql.removeEventListener('change', onChange);
+    }
+    mql.addListener(onChange);
+    return () => mql.removeListener(onChange);
+  }, []);
+
+  const handleToggleStep = useCallback(
+    (index) => {
+      setOpenSteps((prev) => {
+        const current = index in prev ? prev[index] : isDesktop;
+        return { ...prev, [index]: !current };
+      });
+    },
+    [isDesktop]
+  );
+
+  // Pasos analíticos 1-6 (dentro del acordeón)
+  const derivationRows = useMemo(() => {
     const list = [];
     list.push({
       title: isWashers ? 'Fórmula general (arandelas)' : 'Fórmula general (capas)',
@@ -66,24 +124,59 @@ const IntegralLatex = memo(function IntegralLatex({
     });
     if (steps.radii) {
       list.push({
-        title: isWashers ? 'Radios exterior R(x) e interior r(x)' : 'Radio ρ(x) y altura h(x) de la capa',
+        title: isWashers
+          ? 'Radios exterior R(x) e interior r(x)'
+          : 'Radio ρ(x) y altura h(x) de la capa',
         tex: steps.radii,
         color: 'indigo',
       });
     }
-    if (steps.substituted) list.push({ title: 'Sustitución de límites y funciones', tex: steps.substituted, color: 'cyan' });
-    if (steps.integrandSimplified) list.push({ title: 'Integrando desarrollado', tex: steps.integrandSimplified, color: 'cyan' });
-    if (steps.antiderivative) list.push({ title: 'Antiderivada F(x)', tex: steps.antiderivative, color: 'emerald' });
-    if (steps.evaluated) list.push({ title: 'Evaluación en [a, b]  (Teorema Fundamental)', tex: steps.evaluated, color: 'emerald' });
-    if (steps.exact) list.push({ title: 'Resultado exacto', tex: steps.exact, color: 'amber', highlight: true });
-    else if (steps.rationalHint) list.push({ title: 'Resultado ≈ en términos de π', tex: steps.rationalHint, color: 'amber', highlight: true });
+    if (steps.substituted) {
+      list.push({
+        title: 'Sustitución de límites y funciones',
+        tex: steps.substituted,
+        color: 'cyan',
+      });
+    }
+    if (steps.integrandSimplified) {
+      list.push({
+        title: 'Integrando desarrollado',
+        tex: steps.integrandSimplified,
+        color: 'cyan',
+      });
+    }
+    if (steps.antiderivative) {
+      list.push({
+        title: 'Antiderivada F(x)',
+        tex: steps.antiderivative,
+        color: 'emerald',
+      });
+    }
+    if (steps.evaluated) {
+      list.push({
+        title: 'Evaluación en [a, b]  (Teorema Fundamental)',
+        tex: steps.evaluated,
+        color: 'emerald',
+      });
+    }
     return list;
   }, [isWashers, steps]);
+
+  // Paso final (fuera del acordeón, resultado exacto + aproximación Simpson 1/3)
+  const exactResultRow = useMemo(() => {
+    if (steps.exact) return { title: 'Resultado exacto', tex: steps.exact };
+    if (steps.rationalHint) {
+      return { title: 'Resultado ≈ en términos de π', tex: steps.rationalHint };
+    }
+    return null;
+  }, [steps.exact, steps.rationalHint]);
+
+  const finalStepNumber = derivationRows.length + 1;
 
   return (
     <div
       translate="no"
-      className={`${GLASS} notranslate h-full overflow-y-auto p-4 text-slate-800 space-y-3`}
+      className={`${GLASS} notranslate md:h-full md:overflow-y-auto p-4 text-slate-800 space-y-3`}
     >
       {/* Title */}
       <div className="flex items-center gap-2 border-b border-slate-200/80 pb-2">
@@ -100,37 +193,21 @@ const IntegralLatex = memo(function IntegralLatex({
         </div>
       )}
 
-      {/* Steps */}
+      {/* Acordeón de pasos 1-6 */}
       <div className="space-y-2">
-        {rows.map((row, i) => (
-          <Step key={row.title} n={i + 1} {...row} />
-        ))}
-      </div>
-
-      {/* Numeric result highlighted in soft amber/gold */}
-      <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-amber-50/70 rounded-xl border border-amber-300 text-amber-900">
-        <div>
-          <span className="text-xs text-amber-800 font-medium flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-amber-500" />
-            Valor decimal (Simpson 1/3, giro 360°):
-          </span>
-          <div className="flex items-baseline gap-2 flex-wrap mt-0.5">
-            <span className="text-lg font-bold font-mono text-amber-900 tabular-nums">
-              {fullVolume.toFixed(4)} <span className="text-xs font-normal text-amber-700">u³</span>
-            </span>
-            <span className="text-xs font-mono text-amber-800/80 tabular-nums">≈ {(fullVolume / Math.PI).toFixed(4)}π u³</span>
-          </div>
-        </div>
-
-        {angleFraction < 0.999 && (
-          <div className="border-l border-amber-300 pl-3">
-            <span className="text-xs text-amber-800 block">Volumen del sólido parcial:</span>
-            <span className="text-lg font-bold font-mono text-blue-700 tabular-nums">
-              {currentVolume.toFixed(4)}{' '}
-              <span className="text-xs font-normal text-amber-700 tabular-nums">u³ ({Math.round(angleFraction * 100)}%)</span>
-            </span>
-          </div>
-        )}
+        {derivationRows.map((row, i) => {
+          const stepOpen = i in openSteps ? Boolean(openSteps[i]) : isDesktop;
+          return (
+            <AccordionStep
+              key={row.title}
+              index={i}
+              n={i + 1}
+              isOpen={stepOpen}
+              onToggle={handleToggleStep}
+              {...row}
+            />
+          );
+        })}
       </div>
 
       {steps.notes?.map((note) => (
@@ -139,6 +216,53 @@ const IntegralLatex = memo(function IntegralLatex({
           <span>{note}</span>
         </div>
       ))}
+
+      {/* Paso 7: Resultado Exacto y Simpson 1/3 (fuera del acordeón, sticky en móvil) */}
+      <div className="sticky bottom-0 z-40 bg-white/95 backdrop-blur shadow-md rounded-xl p-3 border border-amber-300 text-amber-900 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] uppercase tracking-wider font-semibold text-amber-800 flex items-center gap-1.5">
+            <span className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold bg-amber-400 text-slate-900 shrink-0">
+              {finalStepNumber}
+            </span>
+            {exactResultRow ? exactResultRow.title : 'Resultado final (Simpson 1/3)'}
+          </span>
+        </div>
+
+        {exactResultRow && (
+          <div className="rounded-lg bg-amber-50/75 px-2.5 py-1.5 border border-amber-200/80">
+            <KatexBlock tex={exactResultRow.tex} className="text-sm text-amber-900" />
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-0.5">
+          <div>
+            <span className="text-xs text-amber-800 font-medium flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-amber-500" />
+              Valor decimal (Simpson 1/3, giro 360°):
+            </span>
+            <div className="flex items-baseline gap-2 flex-wrap mt-0.5">
+              <span className="text-lg font-bold font-mono text-amber-900 tabular-nums">
+                {fullVolume.toFixed(4)} <span className="text-xs font-normal text-amber-700">u³</span>
+              </span>
+              <span className="text-xs font-mono text-amber-800/80 tabular-nums">
+                ≈ {(fullVolume / Math.PI).toFixed(4)}π u³
+              </span>
+            </div>
+          </div>
+
+          {angleFraction < 0.999 && (
+            <div className="border-l border-amber-300 pl-3">
+              <span className="text-xs text-amber-800 block">Volumen del sólido parcial:</span>
+              <span className="text-lg font-bold font-mono text-blue-700 tabular-nums">
+                {currentVolume.toFixed(4)}{' '}
+                <span className="text-xs font-normal text-amber-700 tabular-nums">
+                  u³ ({Math.round(angleFraction * 100)}%)
+                </span>
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 });

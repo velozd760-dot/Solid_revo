@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import {
@@ -38,10 +38,49 @@ const DEFAULT_CAMERA_CONFIG = {
   zoom: DEFAULT_CAMERA_ZOOM,
 };
 
-const DPR_RANGE = [
-  1,
-  typeof window !== 'undefined' ? Math.max(1, Math.min(window.devicePixelRatio || 1, 1.5)) : 1.5,
-];
+const ANIM_CAMERA_2D_POSITION = new THREE.Vector3(0, 0, 10);
+const ANIM_CAMERA_3D_POSITION = new THREE.Vector3(...DEFAULT_CAMERA_POSITION);
+const ANIM_CAMERA_TARGET = new THREE.Vector3(...DEFAULT_CAMERA_TARGET);
+const ANIM_PHASE1_CAMERA_DURATION = 1.2;
+const ANIM_PHASE2_SWEEP_DURATION = 2.2;
+const ANIM_MIN_SAFE_ANGLE_RAD = 0.01;
+
+function easeInOutCubic(t) {
+  const c = Math.max(0, Math.min(1, t));
+  return c < 0.5 ? 4 * c * c * c : 1 - Math.pow(-2 * c + 2, 3) / 2;
+}
+
+const MOBILE_MEDIA_QUERY = '(max-width: 768px)';
+
+/**
+ * Detecta viewport móvil/estrecho mediante media query para aplicar optimizaciones
+ * de renderizado WebGL sin alterar el comportamiento de escritorio.
+ */
+function useIsMobileViewport(query = MOBILE_MEDIA_QUERY) {
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return false;
+    }
+    return window.matchMedia(query).matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined;
+    }
+    const mql = window.matchMedia(query);
+    const onChange = (event) => setIsMobile(event.matches);
+
+    if (typeof mql.addEventListener === 'function') {
+      mql.addEventListener('change', onChange);
+      return () => mql.removeEventListener('change', onChange);
+    }
+    mql.addListener(onChange);
+    return () => mql.removeListener(onChange);
+  }, [query]);
+
+  return isMobile;
+}
 
 const GL_CONFIG = {
   powerPreference: 'low-power',
@@ -528,6 +567,190 @@ const CameraRig = memo(function CameraRig({
   return null;
 });
 
+/**
+ * Orquestador de la animación guiada 2D -> 3D + barrido angular 0° -> 360° en dos fases.
+ */
+const RevolutionAnimator = memo(function RevolutionAnimator({
+  isAnimatingPreset = false,
+  animationTrigger = 0,
+  endRevolutionAnimation,
+  controlsRef,
+  cameraStateRef,
+  isRestoringRef,
+  cancelResetFnRef,
+  canRender = true,
+  onSequenceActiveChange,
+  onAnimatedAngleChange,
+  onStopPlaying,
+}) {
+  const getThree = useThree((state) => state.get);
+  const invalidate = useThree((state) => state.invalidate);
+
+  const animRef = useRef({
+    active: false,
+    elapsed: 0,
+    firstFrameRendered: false,
+    phase2Started: false,
+    lastTickMs: 0,
+    lastTrigger: 0,
+  });
+
+  const applyCameraPose = useCallback(
+    (posVec, targetVec, { enableControls, updateStateRef = false } = {}) => {
+      const { camera } = getThree();
+      const controls = controlsRef.current;
+      if (!camera) return;
+
+      isRestoringRef.current = true;
+      camera.position.copy(posVec);
+      camera.up.set(0, 1, 0);
+      camera.zoom = DEFAULT_CAMERA_ZOOM;
+      camera.updateProjectionMatrix();
+      camera.lookAt(targetVec);
+
+      if (controls) {
+        const prevDamping = controls.enableDamping;
+        controls.enableDamping = false;
+        controls.target.copy(targetVec);
+        controls.update();
+        controls.enableDamping = prevDamping;
+        if (typeof enableControls === 'boolean') {
+          controls.enabled = enableControls;
+        }
+      }
+      isRestoringRef.current = false;
+
+      if (updateStateRef && cameraStateRef) {
+        cameraStateRef.current = {
+          position: [posVec.x, posVec.y, posVec.z],
+          target: [targetVec.x, targetVec.y, targetVec.z],
+          zoom: DEFAULT_CAMERA_ZOOM,
+        };
+      }
+    },
+    [getThree, controlsRef, cameraStateRef, isRestoringRef]
+  );
+
+  useEffect(() => {
+    if (!isAnimatingPreset) {
+      if (animRef.current.active) {
+        animRef.current.active = false;
+        if (controlsRef.current) {
+          controlsRef.current.enabled = Boolean(canRender);
+        }
+        onSequenceActiveChange?.(false);
+        onAnimatedAngleChange?.(null);
+      }
+      return;
+    }
+
+    if (animationTrigger <= 0 || animationTrigger === animRef.current.lastTrigger) {
+      return;
+    }
+
+    animRef.current = {
+      active: true,
+      elapsed: 0,
+      firstFrameRendered: false,
+      phase2Started: false,
+      lastTickMs: 0,
+      lastTrigger: animationTrigger,
+    };
+
+    cancelResetFnRef?.current?.();
+    onStopPlaying?.();
+    onSequenceActiveChange?.(true);
+    onAnimatedAngleChange?.(0);
+    applyCameraPose(ANIM_CAMERA_2D_POSITION, ANIM_CAMERA_TARGET, {
+      enableControls: false,
+      updateStateRef: true,
+    });
+
+    if (canRender) {
+      invalidate();
+    }
+  }, [
+    isAnimatingPreset,
+    animationTrigger,
+    canRender,
+    controlsRef,
+    cancelResetFnRef,
+    onStopPlaying,
+    onSequenceActiveChange,
+    onAnimatedAngleChange,
+    applyCameraPose,
+    invalidate,
+  ]);
+
+  useFrame((state) => {
+    const anim = animRef.current;
+    if (!anim.active || !isAnimatingPreset) return;
+
+    const { camera } = state;
+    const controls = controlsRef.current;
+
+    // Frame inicial (t = 0s): mantiene vista plana 2D perpendicular al XY antes de avanzar
+    if (!anim.firstFrameRendered) {
+      anim.firstFrameRendered = true;
+      anim.lastTickMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      applyCameraPose(ANIM_CAMERA_2D_POSITION, ANIM_CAMERA_TARGET, {
+        enableControls: false,
+      });
+      return;
+    }
+
+    // Reloj real acotado a 0.2s por frame: evita cámara lenta bajo FPS reducidos y saltos tras pausas
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const dt = Math.min(Math.max((now - anim.lastTickMs) / 1000, 0), 0.2);
+    anim.lastTickMs = now;
+    anim.elapsed += dt;
+
+    if (anim.elapsed < ANIM_PHASE1_CAMERA_DURATION) {
+      // Fase 1 (0s - 1.2s): transición suave de cámara 2D -> perspectiva 3D predeterminada
+      const t1 = easeInOutCubic(anim.elapsed / ANIM_PHASE1_CAMERA_DURATION);
+      isRestoringRef.current = true;
+      camera.position.lerpVectors(ANIM_CAMERA_2D_POSITION, ANIM_CAMERA_3D_POSITION, t1);
+      camera.lookAt(ANIM_CAMERA_TARGET);
+      if (controls) {
+        controls.target.copy(ANIM_CAMERA_TARGET);
+        controls.enabled = false;
+      }
+      isRestoringRef.current = false;
+      return;
+    }
+
+    if (!anim.phase2Started) {
+      anim.phase2Started = true;
+      applyCameraPose(ANIM_CAMERA_3D_POSITION, ANIM_CAMERA_TARGET, {
+        enableControls: false,
+      });
+    }
+
+    const sweepElapsed = anim.elapsed - ANIM_PHASE1_CAMERA_DURATION;
+    const rawT2 = Math.min(1, sweepElapsed / ANIM_PHASE2_SWEEP_DURATION);
+
+    if (rawT2 < 1) {
+      // Fase 2 (1.2s - 3.4s): barrido progresivo 0° -> 360° en LOD borrador (24x24)
+      const nextAngleDeg = easeInOutCubic(rawT2) * 360;
+      onAnimatedAngleChange?.(nextAngleDeg);
+      return;
+    }
+
+    // Finalización: estabiliza cámara, restaura LOD alto (64x72), reactiva OrbitControls y desbloquea UI
+    anim.active = false;
+    applyCameraPose(ANIM_CAMERA_3D_POSITION, ANIM_CAMERA_TARGET, {
+      enableControls: Boolean(canRender),
+      updateStateRef: true,
+    });
+    onAnimatedAngleChange?.(360, { commitOnly: true });
+    onSequenceActiveChange?.(false);
+    endRevolutionAnimation?.();
+    invalidate();
+  });
+
+  return null;
+});
+
 const DEFAULT_ELEMENT_3D = { xc: 0, xSample: 0, dx: 0.1, index: 0 };
 
 const Scene = memo(function Scene({
@@ -549,11 +772,15 @@ const Scene = memo(function Scene({
   opacity = 0.55,
   canRender = true,
   isDraftLod = false,
+  enforceMinSafeAngle = false,
 }) {
   const invalidate = useThree((state) => state.invalidate);
   const resolvedMode = sampleMode ?? riemannMode ?? 'left';
   const safeElement = element ?? DEFAULT_ELEMENT_3D;
-  const angleRad = (angleDeg * Math.PI) / 180;
+  const rawAngleRad = (angleDeg * Math.PI) / 180;
+  const angleRad = enforceMinSafeAngle
+    ? Math.max(ANIM_MIN_SAFE_ANGLE_RAD, rawAngleRad)
+    : rawAngleRad;
   const lod = isDraftLod ? LOD_DRAFT : LOD_HIGH;
   const bounds = useMemo(
     () => computeSolidBounds({ f, g, a, b, axis, axisOffset }),
@@ -680,6 +907,11 @@ const Canvas3D = memo(function Canvas3D({
   axis = 'x',
   axisOffset = 0,
   angleDeg = 360,
+  setAngleDeg,
+  setIsPlaying,
+  isAnimatingPreset = false,
+  animationTrigger = 0,
+  endRevolutionAnimation,
   slicesCount = 20,
   element = DEFAULT_ELEMENT_3D,
   showElement = true,
@@ -699,6 +931,9 @@ const Canvas3D = memo(function Canvas3D({
   const smoothResetFnRef = useRef(null);
   const cancelResetFnRef = useRef(null);
   const isRestoringRef = useRef(false);
+  const lastParentAngleSyncRef = useRef(0);
+  const [isSequenceActive, setIsSequenceActive] = useState(false);
+  const [localAngleDeg, setLocalAngleDeg] = useState(null);
 
   const [isDocVisible, setIsDocVisible] = useState(() =>
     typeof document === 'undefined' ? true : !document.hidden
@@ -713,8 +948,41 @@ const Canvas3D = memo(function Canvas3D({
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
 
+  const isMobile = useIsMobileViewport(MOBILE_MEDIA_QUERY);
+  const [deviceDpr, setDeviceDpr] = useState(() =>
+    typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const syncDpr = () => setDeviceDpr(window.devicePixelRatio || 1);
+    window.addEventListener('resize', syncDpr);
+
+    let mql = null;
+    if (typeof window.matchMedia === 'function') {
+      mql = window.matchMedia(`(resolution: ${deviceDpr}dppx)`);
+      if (typeof mql.addEventListener === 'function') {
+        mql.addEventListener('change', syncDpr);
+      }
+    }
+
+    return () => {
+      window.removeEventListener('resize', syncDpr);
+      if (mql && typeof mql.removeEventListener === 'function') {
+        mql.removeEventListener('change', syncDpr);
+      }
+    };
+  }, [deviceDpr]);
+
+  const dprRange = useMemo(
+    () => [1, Math.max(1, Math.min(deviceDpr, 1.5))],
+    [deviceDpr]
+  );
+
   const canRender = Boolean(isVisible && isDocVisible);
   const canRenderRef = useRef(canRender);
+  const effectiveAngleDeg = localAngleDeg ?? angleDeg;
+  const effectiveDraftLod = Boolean(isMobile || isDraftLod || isSequenceActive);
 
   useEffect(() => {
     canRenderRef.current = canRender;
@@ -722,6 +990,34 @@ const Canvas3D = memo(function Canvas3D({
       r3fRef.current?.invalidate?.();
     }
   }, [canRender]);
+
+  const handleStopPlaying = useCallback(() => {
+    setIsPlaying?.(false);
+  }, [setIsPlaying]);
+
+  const handleAnimatedAngleChange = useCallback(
+    (deg, { commitOnly = false } = {}) => {
+      if (commitOnly) {
+        lastParentAngleSyncRef.current = 0;
+        setLocalAngleDeg(null);
+        if (typeof deg === 'number') {
+          setAngleDeg?.(deg);
+        }
+        return;
+      }
+
+      setLocalAngleDeg(deg);
+      if (typeof deg !== 'number') return;
+
+      // Throttle de sincronización al árbol padre (~90ms) para evitar re-renders 60Hz en ControlsPanel/2D
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      if (deg <= 0.01 || now - lastParentAngleSyncRef.current >= 90) {
+        lastParentAngleSyncRef.current = now;
+        setAngleDeg?.(deg);
+      }
+    },
+    [setAngleDeg]
+  );
 
   const safeElement = element ?? DEFAULT_ELEMENT_3D;
   const elementLabel = axis === 'x' ? 'Arandela dx' : 'Capa cilíndrica dx';
@@ -773,8 +1069,9 @@ const Canvas3D = memo(function Canvas3D({
   }, []);
 
   const handleResetCamera = useCallback(() => {
+    if (isSequenceActive) return;
     smoothResetFnRef.current?.();
-  }, []);
+  }, [isSequenceActive]);
 
   const handleControlsStart = useCallback(() => {
     cancelResetFnRef.current?.();
@@ -858,8 +1155,8 @@ const Canvas3D = memo(function Canvas3D({
       </div>
 
       <Canvas
-        frameloop={canRender ? 'demand' : 'never'}
-        dpr={DPR_RANGE}
+        frameloop={canRender ? (isSequenceActive ? 'always' : 'demand') : 'never'}
+        dpr={dprRange}
         camera={DEFAULT_CAMERA_CONFIG}
         gl={GL_CONFIG}
         onCreated={handleCreated}
@@ -867,9 +1164,12 @@ const Canvas3D = memo(function Canvas3D({
         <OrbitControls
           ref={controlsRef}
           makeDefault
-          enabled={canRender}
-          enableDamping
-          dampingFactor={0.06}
+          enabled={canRender && !isSequenceActive}
+          enableDamping={true}
+          dampingFactor={isMobile ? 0.05 : 0.06}
+          rotateSpeed={isMobile ? 0.65 : 1}
+          zoomSpeed={isMobile ? 0.7 : 1}
+          panSpeed={isMobile ? 0.75 : 1}
           minDistance={1.5}
           maxDistance={40}
           onStart={handleControlsStart}
@@ -884,6 +1184,19 @@ const Canvas3D = memo(function Canvas3D({
           cancelResetFnRef={cancelResetFnRef}
           isRestoringRef={isRestoringRef}
         />
+        <RevolutionAnimator
+          isAnimatingPreset={isAnimatingPreset}
+          animationTrigger={animationTrigger}
+          endRevolutionAnimation={endRevolutionAnimation}
+          controlsRef={controlsRef}
+          cameraStateRef={cameraStateRef}
+          isRestoringRef={isRestoringRef}
+          cancelResetFnRef={cancelResetFnRef}
+          canRender={canRender}
+          onSequenceActiveChange={setIsSequenceActive}
+          onAnimatedAngleChange={handleAnimatedAngleChange}
+          onStopPlaying={handleStopPlaying}
+        />
         <Scene
           f={f}
           g={g}
@@ -891,7 +1204,7 @@ const Canvas3D = memo(function Canvas3D({
           b={b}
           axis={axis}
           axisOffset={axisOffset}
-          angleDeg={angleDeg}
+          angleDeg={effectiveAngleDeg}
           slicesCount={slicesCount}
           element={safeElement}
           showElement={showElement}
@@ -902,7 +1215,8 @@ const Canvas3D = memo(function Canvas3D({
           wireframe={wireframe}
           opacity={opacity}
           canRender={canRender}
-          isDraftLod={isDraftLod}
+          isDraftLod={effectiveDraftLod}
+          enforceMinSafeAngle={isSequenceActive}
         />
       </Canvas>
     </div>
